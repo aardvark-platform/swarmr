@@ -19,6 +19,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "_", "_", "{F993FCEC-20FE-4E
 		..\RELEASE_NOTES.md = ..\RELEASE_NOTES.md
 	EndProjectSection
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Swarmr.Tests", "Swarmr.Tests\Swarmr.Tests.csproj", "{1A438968-515D-4228-9BD1-9D1AB110F4C6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,8 +35,15 @@ Global
 		{C1789C55-4673-4B1F-9570-82B62FF0DE23}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C1789C55-4673-4B1F-9570-82B62FF0DE23}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C1789C55-4673-4B1F-9570-82B62FF0DE23}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C301CF15-B933-4AC5-ACDA-840C54B031C7}
 	EndGlobalSection
 EndGlobal
