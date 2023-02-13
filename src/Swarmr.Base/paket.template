@@ -1,0 +1,11 @@
+type project
+id Swarmr.Base
+authors Aardvark Platform Team
+owners Aardvark Platform Team
+projectUrl http://github.com/aardvark-platform
+licenseUrl https://github.com/aardvark-platform/swarmr/blob/master/LICENSE
+repositoryType git
+repositoryUrl https://github.com/aardvark-platform/swarmr
+description
+    Run stuff across multiple worker nodes in your local network.
+include-pdbs true
