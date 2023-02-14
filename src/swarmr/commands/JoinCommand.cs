@@ -1,5 +1,4 @@
-﻿using Spectre.Console;
-using Spectre.Console.Cli;
+﻿using Spectre.Console.Cli;
 using Swarmr.Base;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
@@ -14,10 +13,15 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
         [CommandArgument(0, "[URL]")]
         public string? Url { get; init; }
 
-        [Description("Specifies the port to listen on.")]
+        [Description("Specifies the port to listen on. ")]
         [CommandOption("-p|--port <PORT>")]
         [DefaultValue(Info.DefaultPort)]
         public int Port { get; init; }
+
+        [Description("Local working directory. ")]
+        [CommandOption("-w|--workdir <LOCALDIR>")]
+        [DefaultValue(".swarmr")]
+        public string WorkDir { get; init; } = null!;
     }
 
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
@@ -35,7 +39,8 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
 
         var swarm = await Swarm.ConnectAsync(
             self: myself,
-            url: settings.Url
+            url: settings.Url,
+            workdir: settings.WorkDir
             );
 
         swarm.PrintNice();

@@ -38,6 +38,9 @@ public class NodeHttpClient : ISwarm
     public Task<GetFailoverNomineeResponse> GetFailoverNomineeAsync(GetFailoverNomineeRequest request)
         => Call<GetFailoverNomineeResponse, GetFailoverNomineeRequest>(request);
 
+    public Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
+        => Call<RegisterRunnerResponse, RegisterRunnerRequest>(request);
+
     #endregion
 
     #region helpers

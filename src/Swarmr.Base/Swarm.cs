@@ -1,15 +1,18 @@
-﻿using Spectre.Console;
+﻿using Microsoft.VisualBasic;
+using Spectre.Console;
 using Swarmr.Base.Api;
-using System.Xml;
+using System.Security.Cryptography;
 
 namespace Swarmr.Base;
 
 public class Swarm : ISwarm
 {
     public static readonly TimeSpan HOUSEKEEPING_INTERVAL = TimeSpan.FromSeconds(5);
-    public static readonly TimeSpan NODE_TIMEOUT          = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan NODE_TIMEOUT = TimeSpan.FromSeconds(15);
+    public const string DEFAULT_WORKDIR = ".swarmr";
 
     public string SelfId { get; }
+    public string WorkDir { get; }
     public string? PrimaryId { get; private set; }
 
     public bool IAmPrimary => SelfId == PrimaryId;
@@ -34,7 +37,14 @@ public class Swarm : ISwarm
     /// <summary>
     /// Constructor.
     /// </summary>
-    public static async Task<Swarm> ConnectAsync(Node self, string? url = null)
+    /// <param name="self"></param>
+    /// <param name="url">URL of an active swarm node. Joins this node's swarm.</param>
+    /// <returns></returns>
+    public static async Task<Swarm> ConnectAsync(
+        Node self,
+        string? url,
+        string workdir
+        )
     {
         if (url != null && url.EndsWith('/')) url = url[..^1];
 
@@ -43,12 +53,12 @@ public class Swarm : ISwarm
         {
             // clone the swarm from the node at given URL
             var swarmNode = new NodeHttpClient(url);
-            swarm = await swarmNode.JoinSwarmAsync(self);
+            swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir);
         }
         else
         {
             // create a new swarm of one, with myself as primary
-            swarm = new Swarm(self);
+            swarm = new Swarm(self, workdir: workdir);
         }
 
         swarm.StartHouseKeeping();
@@ -169,23 +179,32 @@ public class Swarm : ISwarm
         var nominee = await ChooseNomineeForPrimary();
         return new(Nominee: nominee);
     }
-
-    /// <summary>
-    /// Chooses a nominee for primary from current node list.
-    /// </summary>
-    private async Task<Node> ChooseNomineeForPrimary()
+    
+    public async Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
     {
-        // (1) first let's check who is REALLY still around
-        await RefreshNodeListAsync(forcePingWithinTtl: true);
+        var sourcefile = new FileInfo(request.Source);
+        if (!sourcefile.Exists) throw new Exception($"File does not exist (\"{request.Source}\").");
 
-        // (2) choose node with smallest id as nominee
-        var nominee = Nodes.MinBy(x => x.Id);
-        if (nominee == null)
-        {
-            Console.WriteLine($"[ChooseNomineeForPrimary] there are no nodes, although I am alive - something got completely wrong");
-            Environment.Exit(1);
-        }
-        return nominee;
+        var hashstream = sourcefile.OpenRead();
+        var hash = Convert.ToHexString(await SHA256.Create().ComputeHashAsync(hashstream)).ToLowerInvariant();
+        hashstream.Close();
+
+        var targetdir = new DirectoryInfo(Path.Combine(WorkDir, "runners", request.Name));
+        if (!targetdir.Exists) targetdir.Create();
+
+        var targetfile = new FileInfo(Path.Combine(targetdir.FullName, hash + sourcefile.Extension));
+        using var targetstream = targetfile.OpenWrite();
+        using var sourcestream = sourcefile.OpenRead();
+        await sourcestream.CopyToAsync(targetstream);
+
+        var runner = new Runner(
+            Created: DateTimeOffset.UtcNow,
+            Name: request.Name,
+            Runtime: request.Runtime,
+            Hash: targetfile.Name
+            );
+
+        return new(runner);
     }
 
     #endregion
@@ -197,7 +216,7 @@ public class Swarm : ISwarm
         IReadOnlyList<Node> Nodes
         )
     {
-        public Swarm ToSwarm(Node self) => new(this, self);
+        public Swarm ToSwarm(Node self, string workdir) => new(this, self, workdir);
         public static Dto FromSwarm(Swarm swarm) => new(
             Primary: swarm.PrimaryId,
             Nodes: swarm.Nodes
@@ -206,20 +225,28 @@ public class Swarm : ISwarm
 
     private readonly Dictionary<string, Node> _nodes = new();
 
-    private Swarm(Node self)
-        : this(self, self.Id, Enumerable.Empty<Node>())
+    private Swarm(Node self, string workdir)
+        : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>())
     { }
 
-    private Swarm(Dto dto, Node self) 
-        : this(self, dto.Primary, dto.Nodes)
+    private Swarm(Dto dto, Node self, string workdir) 
+        : this(self, workdir: workdir, primary: dto.Primary, dto.Nodes)
     { }
 
-    private Swarm(Node self, string? primary, IEnumerable<Node> nodes)
+    private Swarm(Node self, string workdir, string? primary, IEnumerable<Node> nodes)
     {
         foreach (var n in nodes) _nodes.Add(n.Id, n);
         _nodes[self.Id] = self;
         SelfId = self.Id;
+        WorkDir = workdir;
         PrimaryId = primary;
+
+        var d = new DirectoryInfo(workdir);
+        if (!d.Exists)
+        {
+            AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
+            d.Create();
+        }
     }
 
     private async void StartHouseKeeping(CancellationToken ct = default)
@@ -228,10 +255,13 @@ public class Swarm : ISwarm
         {
             try
             {
-                Console.WriteLine($"[HouseKeeping] {DateTimeOffset.UtcNow}");
+                //Console.WriteLine($"[HouseKeeping] {DateTimeOffset.UtcNow}");
 
                 // update myself
                 UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
+
+                // consistency checks
+                await CheckAndRepairDuplicateEntries();
 
                 // health checks
                 if (IAmPrimary)
@@ -310,7 +340,8 @@ public class Swarm : ISwarm
 
     private void RemoveNode(string id)
     {
-        lock (_nodes) _nodes.Remove(id);
+        if (SelfId == id) return; // never remove self
+        lock (_nodes) { _nodes.Remove(id); }
     }
 
     private bool ExistsNode(string id)
@@ -337,6 +368,46 @@ public class Swarm : ISwarm
         }
     }
 
+    private async Task CheckAndRepairDuplicateEntries()
+    {
+        // find nodes with duplicate connection URLs
+        // (this can happen if a node is restarted more than once
+        // within the TTL time window (with the same URL but different ID)
+        var gs = Nodes.GroupBy(n => n.ConnectUrl).Where(g => g.Count() > 1).ToArray();
+
+        // each group
+        foreach (var g in gs)
+        {
+            var connectionUrl = g.Key;
+
+            Console.WriteLine($"[WARNING] found nodes with duplicate connection URL");
+            Console.WriteLine($"[WARNING]   duplicate URL is: {connectionUrl}");
+            Console.WriteLine($"[WARNING]   node IDs are: {string.Join(", ", g.Select(x => x.Id))}");
+
+            // (1) remove the entries with duplicate connection URL
+            foreach (var node in g)
+            {
+                RemoveNode(node.Id);
+                Console.WriteLine($"[WARNING]   removed node {node.Id}");
+            }
+
+            // (2) now connect to the URL and get the correct node info
+            try
+            {
+                Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info");
+                var client = new NodeHttpClient(connectionUrl);
+                var n = await client.PingAsync();
+                Console.WriteLine($"[WARNING]   current node info is {n.ToJsonString()}");
+                UpsertNode(n);
+            }
+            catch
+            {
+                Console.WriteLine($"[WARNING]   failed to contact {connectionUrl}");
+                Console.WriteLine($"[WARNING]   done");
+            }
+        }
+    }
+
     /// <summary>
     /// Remove all nodes that are not responsive.
     /// </summary>
@@ -353,7 +424,7 @@ public class Swarm : ISwarm
 
             try
             {
-                Console.WriteLine($"[HouseKeeping] ping node \"{node.Id}\"");
+                //Console.WriteLine($"[HouseKeeping] ping node \"{node.Id}\"");
                 var updatedNode = await node.Client.PingAsync();
                 UpsertNode(updatedNode);
             }
@@ -475,6 +546,24 @@ public class Swarm : ISwarm
         }
 
         throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Chooses a nominee for primary from current node list.
+    /// </summary>
+    private async Task<Node> ChooseNomineeForPrimary()
+    {
+        // (1) first let's check who is REALLY still around
+        await RefreshNodeListAsync(forcePingWithinTtl: true);
+
+        // (2) choose node with smallest id as nominee
+        var nominee = Nodes.MinBy(x => x.Id);
+        if (nominee == null)
+        {
+            Console.WriteLine($"[ChooseNomineeForPrimary] there are no nodes, although I am alive - something got completely wrong");
+            Environment.Exit(1);
+        }
+        return nominee;
     }
 
     #endregion

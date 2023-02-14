@@ -20,6 +20,9 @@ public record RemoveNodesResponse();
 public record GetFailoverNomineeRequest();
 public record GetFailoverNomineeResponse(Node Nominee);
 
+public record RegisterRunnerRequest(string Source, string Name, string Runtime);
+public record RegisterRunnerResponse(Runner Runner);
+
 public interface ISwarm
 {
     Task<JoinSwarmResponse         > JoinSwarmAsync         (JoinSwarmRequest          request);
@@ -28,6 +31,7 @@ public interface ISwarm
     Task<UpdateNodeResponse        > UpdateNodeAsync        (UpdateNodeRequest         request);
     Task<RemoveNodesResponse       > RemoveNodesAsync       (RemoveNodesRequest        request);
     Task<GetFailoverNomineeResponse> GetFailoverNomineeAsync(GetFailoverNomineeRequest request);
+    Task<RegisterRunnerResponse    > RegisterRunnerAsync    (RegisterRunnerRequest     request);
 }
 
 public record SwarmRequest(string Type, object Request);
@@ -39,14 +43,15 @@ public static class INodeClientExtensions
     {
         return request.Type switch
         {
-            nameof(JoinSwarmRequest)          => call<JoinSwarmRequest         , JoinSwarmResponse         >(client.JoinSwarmAsync         ),
-            nameof(HeartbeatRequest)          => call<HeartbeatRequest         , HeartbeatResponse         >(client.HeartbeatAsync         ),
-            nameof(PingRequest)               => call<PingRequest              , PingResponse              >(client.PingAsync              ),
-            nameof(UpdateNodeRequest)         => call<UpdateNodeRequest        , UpdateNodeResponse        >(client.UpdateNodeAsync        ),
-            nameof(RemoveNodesRequest)        => call<RemoveNodesRequest       , RemoveNodesResponse       >(client.RemoveNodesAsync       ),
+            nameof(JoinSwarmRequest         ) => call<JoinSwarmRequest         , JoinSwarmResponse         >(client.JoinSwarmAsync         ),
+            nameof(HeartbeatRequest         ) => call<HeartbeatRequest         , HeartbeatResponse         >(client.HeartbeatAsync         ),
+            nameof(PingRequest              ) => call<PingRequest              , PingResponse              >(client.PingAsync              ),
+            nameof(UpdateNodeRequest        ) => call<UpdateNodeRequest        , UpdateNodeResponse        >(client.UpdateNodeAsync        ),
+            nameof(RemoveNodesRequest       ) => call<RemoveNodesRequest       , RemoveNodesResponse       >(client.RemoveNodesAsync       ),
             nameof(GetFailoverNomineeRequest) => call<GetFailoverNomineeRequest, GetFailoverNomineeResponse>(client.GetFailoverNomineeAsync),
+            nameof(RegisterRunnerRequest    ) => call<RegisterRunnerRequest    , RegisterRunnerResponse    >(client.RegisterRunnerAsync    ),
 
-            _ => throw new Exception(
+            _ => throw new Exception( 
                 $"Unknown request \"{request.Type}\". " +
                 $"Error 53fe2ab3-c803-445d-84b4-f35e59003986."
                 )
@@ -59,10 +64,10 @@ public static class INodeClientExtensions
             );
     }
 
-    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self)
+    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self, string workdir)
     {
         var response = await client.JoinSwarmAsync(new(Candidate: self));
-        return response.Swarm.ToSwarm(self: self);
+        return response.Swarm.ToSwarm(self: self, workdir: workdir);
     }
    
     public static async Task HeartbeatAsync(this ISwarm client, Node self)
@@ -90,5 +95,15 @@ public static class INodeClientExtensions
     {
         var response = await client.GetFailoverNomineeAsync(new());
         return response.Nominee;
+    }
+
+    public static async Task<Runner> RegisterRunnerAsync(this ISwarm client, string source, string name, string runtime)
+    {
+        var response = await client.RegisterRunnerAsync(new(
+            Source: source,
+            Name: name,
+            Runtime: runtime
+            ));
+        return response.Runner;
     }
 }
