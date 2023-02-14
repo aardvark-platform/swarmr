@@ -3,7 +3,6 @@ using Spectre.Console.Cli;
 using Swarmr.Base;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Json;
 
 namespace swarmr.Commands;
 
@@ -23,15 +22,25 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
 
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var swarm = await Swarm.ConnectAsync(
-            url: settings.Url,
-            portToListenOn: settings.Port
+        var hostname = Environment.MachineName.ToLowerInvariant();
+
+        var myself = new Node(
+            Id: Guid.NewGuid().ToString(),
+            Created: DateTimeOffset.UtcNow,
+            LastSeen: DateTimeOffset.UtcNow,
+            Hostname: hostname,
+            Port: settings.Port,
+            ConnectUrl: $"http://{hostname}:{settings.Port}"
             );
 
-        var swarmPanel = new Panel(swarm.ToJsonString().EscapeMarkup()).Header("Swarm");
-        AnsiConsole.Write(swarmPanel);
+        var swarm = await Swarm.ConnectAsync(
+            self: myself,
+            url: settings.Url
+            );
 
-        await Server.RunAsync(swarm, port: settings.Port);
+        swarm.PrintNice();
+
+        await Server.RunAsync(swarm: swarm, port: settings.Port);
 
         return 0;
     }

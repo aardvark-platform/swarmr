@@ -23,6 +23,21 @@ public class NodeHttpClient : ISwarm
     public Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
         => Call<JoinSwarmResponse, JoinSwarmRequest>(request);
 
+    public Task<HeartbeatResponse> HeartbeatAsync(HeartbeatRequest request)
+        => Call<HeartbeatResponse, HeartbeatRequest>(request);
+
+    public Task<PingResponse> PingAsync(PingRequest request)
+        => Call<PingResponse, PingRequest>(request);
+
+    public Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
+        => Call<UpdateNodeResponse, UpdateNodeRequest>(request);
+
+    public Task<RemoveNodesResponse> RemoveNodesAsync(RemoveNodesRequest request)
+        => Call<RemoveNodesResponse, RemoveNodesRequest>(request);
+
+    public Task<GetFailoverNomineeResponse> GetFailoverNomineeAsync(GetFailoverNomineeRequest request)
+        => Call<GetFailoverNomineeResponse, GetFailoverNomineeRequest>(request);
+
     #endregion
 
     #region helpers

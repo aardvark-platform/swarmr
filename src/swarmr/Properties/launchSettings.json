@@ -2,7 +2,7 @@
   "profiles": {
     "swarmr": {
       "commandName": "Project",
-      "commandLineArgs": " join http://localhost:5777 -p 5778",
+      "commandLineArgs": " join http://darkmatter:5777 -p 5778",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
