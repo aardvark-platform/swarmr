@@ -2,7 +2,6 @@
 using Swarmr.Base.Api;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Net;
 
 namespace Swarmr.Base;
 
@@ -54,6 +53,7 @@ public class Swarm : ISwarm
         )
     {
         if (url != null && url.EndsWith('/')) url = url[..^1];
+        workdir = Path.GetFullPath(workdir);
 
         Swarm swarm;
         if (url != null)
