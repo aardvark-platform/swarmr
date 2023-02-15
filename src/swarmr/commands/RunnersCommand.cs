@@ -3,7 +3,6 @@ using Spectre.Console.Cli;
 using Swarmr.Base;
 using Swarmr.Base.Api;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 
@@ -21,7 +20,7 @@ public class RunnersRegisterCommand : AsyncCommand<RunnersRegisterCommand.Settin
         [CommandOption("-n|--name <NAME>")]
         public string? Name { get; init; }
 
-        [Description("Specifies custom runner name. By default the filename is used. ")]
+        [Description("Specifies the runner's runtime, e.g. win-x64, or linux-x64. ")]
         [CommandOption("-r|--runtime <RUNTIME_IDENTIFIER>")]
         [DefaultValue("win-x64")]
         public string Runtime { get; init; } = null!;

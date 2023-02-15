@@ -2,7 +2,7 @@
   "profiles": {
     "swarmr": {
       "commandName": "Project",
-      "commandLineArgs": "join -w t:\\tmp\\swarmr0",
+      "commandLineArgs": "join http://localhost:6000 -w t:\\tmp\\swarmr0",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"

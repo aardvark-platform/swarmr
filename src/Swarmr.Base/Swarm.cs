@@ -82,6 +82,7 @@ public class Swarm : ISwarm
 
     public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
     {
+        var candidate = request.Candidate with { LastSeen = DateTimeOffset.UtcNow };
         UpsertNode(request.Candidate);
 
         if (IAmPrimary)
@@ -180,7 +181,11 @@ public class Swarm : ISwarm
                 AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ... completed");
             }
 
-            var newSelf = Self with { AvailableRunners = Self.AvailableRunners.SetItem(name, runner) };
+            var newSelf = Self with 
+            {
+                LastSeen = DateTimeOffset.UtcNow,
+                AvailableRunners = Self.AvailableRunners.SetItem(name, runner) 
+            };
             UpsertNode(newSelf);
             if (TryGetPrimaryNode(out var primary))
             {
@@ -271,6 +276,7 @@ public class Swarm : ISwarm
         // (5) update self
         var newSelf = Self with
         {
+            LastSeen = DateTimeOffset.UtcNow,
             AvailableRunners = Self.AvailableRunners.SetItem(runner.Name, runner)
         };
         UpsertNode(newSelf);

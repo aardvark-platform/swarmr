@@ -2,11 +2,30 @@
 
 namespace Swarmr.Base;
 
-public interface IJobAction
-{
+public record JobData(
+    string Hash,
+    string FileName,
+    string Runner
+    );
 
-}
+/// <summary>
+/// 
+/// </summary>
+/// <param name="Runner"></param>
+/// <param name="CommandLine"></param>
+/// <param name="ResultPaths">Files and dirs that should be synced back.</param>
+/// <param name="DataId"></param>
+public record Job(
+    Runner Runner,
+    string CommandLine,
+    ImmutableList<JobData> Input,
+    ImmutableList<string> ResultPaths
+    );
 
+
+# region sketchy sketch
+
+public interface IJobAction { }
 public interface IJobActionConfig
 {
     IJobAction Hydrate(string Workdir);
@@ -102,3 +121,5 @@ public static class Jobs
         }
     }
 }
+
+#endregion

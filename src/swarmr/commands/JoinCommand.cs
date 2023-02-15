@@ -2,6 +2,7 @@
 using Swarmr.Base;
 using System.Collections.Immutable;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace swarmr.Commands;
@@ -28,7 +29,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var hostname = Environment.MachineName.ToLowerInvariant();
-
+        
         var myself = new Node(
             Id: Guid.NewGuid().ToString(),
             Created: DateTimeOffset.UtcNow,
