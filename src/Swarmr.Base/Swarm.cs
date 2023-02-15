@@ -1,7 +1,8 @@
-﻿using Microsoft.VisualBasic;
-using Spectre.Console;
+﻿using Spectre.Console;
 using Swarmr.Base.Api;
-using System.Security.Cryptography;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Net;
 
 namespace Swarmr.Base;
 
@@ -12,8 +13,8 @@ public class Swarm : ISwarm
     public const string DEFAULT_WORKDIR = ".swarmr";
 
     public string SelfId { get; }
-    public string WorkDir { get; }
     public string? PrimaryId { get; private set; }
+    public string WorkDir { get; }
 
     public bool IAmPrimary => SelfId == PrimaryId;
     public IReadOnlyList<Node> Nodes
@@ -23,14 +24,20 @@ public class Swarm : ISwarm
             lock (_nodes) return _nodes.Values.ToArray();
         }
     }
-    public Node? TryGetPrimaryNode()
+    public bool TryGetPrimaryNode([NotNullWhen(true)]out Node? primary)
     {
         var primaryId = PrimaryId;
         lock (_nodes)
         {
-            if (primaryId == null) return null;
-            _nodes.TryGetValue(primaryId, out var primary);
-            return primary;
+            if (primaryId != null)
+            {
+                return _nodes.TryGetValue(primaryId, out primary);
+            }
+            else
+            {
+                primary = null;
+                return false;
+            }
         }
     }
 
@@ -84,8 +91,7 @@ public class Swarm : ISwarm
         }
         else
         {
-            var primary = TryGetPrimaryNode();
-            if (primary != null)
+            if (TryGetPrimaryNode(out var primary))
             {
                 // notify primary node about candidate
                 try
@@ -138,15 +144,49 @@ public class Swarm : ISwarm
 
     public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
     {
-        if (IAmPrimary && !ExistsNode(request.Node.Id))
+        var node = request.Node;
+
+        if (IAmPrimary)
         {
-            // this is a new node, and since I am the primary node,
-            // it is my duty to inform all others about this new member
-            await NotifyOthersAboutNewNode(request.Node);
+            // I am the primary node, so it is my duty
+            // to inform all others about this new member
+            await NotifyOthersAboutNewNode(node);
         }
 
-        UpsertNode(request.Node);
+        UpsertNode(node);
         PrintNice();
+
+        foreach (var (name, runner) in node.AvailableRunners)
+        {
+            if (Self.HasRunnerWithHash(runner.Hash)) continue;
+
+            AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new runner {runner.ToJsonString()}");
+
+            var dir = GetRunnerExecutableDir(runner.Name);
+            if (!dir.Exists) dir.Create();
+
+            var urls = node.GetDownloadLinks(runner);
+            using var http = new HttpClient();
+            foreach (var url in urls)
+            {
+                var targetFileName = Path.Combine(dir.FullName, Path.GetFileName(url));
+
+                AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ...");
+                var source = await http.GetStreamAsync(url);
+                var target = File.Open(targetFileName, FileMode.Create, FileAccess.Write, FileShare.None);
+                await source.CopyToAsync(target);
+                target.Close();
+                source.Close();
+                AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ... completed");
+            }
+
+            var newSelf = Self with { AvailableRunners = Self.AvailableRunners.SetItem(name, runner) };
+            UpsertNode(newSelf);
+            if (TryGetPrimaryNode(out var primary))
+            {
+                await primary.Client.UpdateNodeAsync(newSelf);
+            }
+        }
 
         return new();
     }
@@ -179,31 +219,70 @@ public class Swarm : ISwarm
         var nominee = await ChooseNomineeForPrimary();
         return new(Nominee: nominee);
     }
-    
+
     public async Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
     {
+        var sw = new Stopwatch();
+
         var sourcefile = new FileInfo(request.Source);
         if (!sourcefile.Exists) throw new Exception($"File does not exist (\"{request.Source}\").");
 
-        var hashstream = sourcefile.OpenRead();
-        var hash = Convert.ToHexString(await SHA256.Create().ComputeHashAsync(hashstream)).ToLowerInvariant();
-        hashstream.Close();
+        // (1) EXEDIR = [WORKDIR]/runners/[NAME]/executable
+        var exedir = GetRunnerExecutableDir(request.Name);
+        if (!exedir.Exists) exedir.Create();
 
-        var targetdir = new DirectoryInfo(Path.Combine(WorkDir, "runners", request.Name));
-        if (!targetdir.Exists) targetdir.Create();
-
-        var targetfile = new FileInfo(Path.Combine(targetdir.FullName, hash + sourcefile.Extension));
-        using var targetstream = targetfile.OpenWrite();
-        using var sourcestream = sourcefile.OpenRead();
+        // (2) copy [SOURCE].zip to [EXEDIR]/[HASH].zip
+        var targetFileName = request.SourceHash + sourcefile.Extension;
+        var targetfile = new FileInfo(Path.Combine(exedir.FullName, targetFileName));
+        var targetstream = targetfile.OpenWrite();
+        var sourcestream = sourcefile.OpenRead();
+        Console.WriteLine($"[RegisterRunnerAsync] copy {sourcefile.FullName} ...");
+        sw.Restart();
         await sourcestream.CopyToAsync(targetstream);
+        targetstream.Close();
+        sourcestream.Close();
+        sw.Stop();
+        Console.WriteLine($"[RegisterRunnerAsync] copy {sourcefile.FullName} ... {sw.Elapsed}");
+        Console.WriteLine($"[RegisterRunnerAsync] created {targetfile.FullName}");
 
+        // (3) write [EXEDIR]/runner.json
         var runner = new Runner(
             Created: DateTimeOffset.UtcNow,
             Name: request.Name,
             Runtime: request.Runtime,
-            Hash: targetfile.Name
+            Hash: Path.GetFileNameWithoutExtension(targetfile.Name),
+            FileName: targetfile.Name
             );
 
+        await File.WriteAllTextAsync(
+            path: Path.Combine(exedir.FullName, "runner.json"),
+            contents: runner.ToJsonString()
+            );
+        
+        // (4) delete old version(s)
+        foreach (var info in exedir.EnumerateFileSystemInfos())
+        {
+            if (info.Name == "runner.json") continue;
+            if (info.Name == targetFileName) continue;
+            info.Delete();
+            Console.WriteLine($"[RegisterRunnerAsync] deleted {info.FullName}");
+        }
+
+        // (5) update self
+        var newSelf = Self with
+        {
+            AvailableRunners = Self.AvailableRunners.SetItem(runner.Name, runner)
+        };
+        UpsertNode(newSelf);
+
+        // (6) report available runner
+        if (TryGetPrimaryNode(out var primary))
+        {
+            await primary.Client.UpdateNodeAsync(newSelf);
+        }
+
+        // done
+        Console.WriteLine($"[RegisterRunnerAsync] registered runner {runner.ToJsonString()}");
         return new(runner);
     }
 
@@ -274,8 +353,7 @@ public class Swarm : ISwarm
                 else
                 {
                     // I'm yet another node
-                    var primary = TryGetPrimaryNode();
-                    if (primary != null)
+                    if (TryGetPrimaryNode(out var primary))
                     {
                         // ping primary node
                         try
@@ -565,6 +643,14 @@ public class Swarm : ISwarm
         }
         return nominee;
     }
+
+    // [WORKDIR]/runners/[NAME]
+    private DirectoryInfo GetRunnerDir(string name)
+        => new(Path.Combine(WorkDir, "runners", name));
+
+    // [WORKDIR]/runners/[NAME]/executable
+    private DirectoryInfo GetRunnerExecutableDir(string name)
+        => new(Path.Combine(GetRunnerDir(name).FullName, "executable"));
 
     #endregion
 }

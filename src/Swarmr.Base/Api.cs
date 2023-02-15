@@ -1,4 +1,7 @@
-﻿using System.Runtime.CompilerServices;
+﻿using Spectre.Console;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 
 namespace Swarmr.Base.Api;
 
@@ -20,7 +23,7 @@ public record RemoveNodesResponse();
 public record GetFailoverNomineeRequest();
 public record GetFailoverNomineeResponse(Node Nominee);
 
-public record RegisterRunnerRequest(string Source, string Name, string Runtime);
+public record RegisterRunnerRequest(string Source, string SourceHash, string Name, string Runtime);
 public record RegisterRunnerResponse(Runner Runner);
 
 public interface ISwarm
@@ -97,10 +100,16 @@ public static class INodeClientExtensions
         return response.Nominee;
     }
 
-    public static async Task<Runner> RegisterRunnerAsync(this ISwarm client, string source, string name, string runtime)
+    public static async Task<Runner> RegisterRunnerAsync(this ISwarm client, 
+        string sourceFile,
+        string sourceFileHash,
+        string name, 
+        string runtime
+        )
     {
         var response = await client.RegisterRunnerAsync(new(
-            Source: source,
+            Source: sourceFile,
+            SourceHash: sourceFileHash,
             Name: name,
             Runtime: runtime
             ));

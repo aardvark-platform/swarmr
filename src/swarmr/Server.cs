@@ -1,4 +1,5 @@
-﻿using Swarmr.Base;
+﻿using Microsoft.Extensions.FileProviders;
+using Swarmr.Base;
 using Swarmr.Base.Api;
 
 namespace swarmr;
@@ -36,6 +37,12 @@ public class Server
         }
 
         app.UseCors();
+
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(swarm.WorkDir),
+            RequestPath = "/static"
+        });
 
         app.MapGet("/", () => $"Swarmr {Info.Version}");
 

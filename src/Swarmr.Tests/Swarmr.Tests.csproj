@@ -20,4 +20,8 @@
     <Folder Include="rest\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Swarmr.Base\Swarmr.Base.csproj" />
+  </ItemGroup>
+
 </Project>

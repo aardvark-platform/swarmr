@@ -3,7 +3,9 @@ using Spectre.Console.Cli;
 using Swarmr.Base;
 using Swarmr.Base.Api;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 
 namespace swarmr.Commands;
 
@@ -35,20 +37,40 @@ public class RunnersRegisterCommand : AsyncCommand<RunnersRegisterCommand.Settin
         if (Path.GetExtension(settings.Path).ToLower() != ".zip")
         {
             AnsiConsole.WriteLine($"Expected .zip file (instead of \"{settings.Path}\").");
+            return 1;
         }
 
         var name = 
             settings.Name 
             ?? Path.GetFileNameWithoutExtension(settings.Path).ToLower()
-            ;
+        ;
 
-        var client = new NodeHttpClient(settings.Url);
+        var file = new FileInfo(settings.Path);
+        string hash = null!;
+        Runner runner = null!;
 
-        var runner = await client.RegisterRunnerAsync(
-            source: settings.Path,
-            name: name,
-            runtime: settings.Runtime
-            );
+        await AnsiConsole.Progress()
+            .StartAsync(async ctx =>
+            {
+                var maxLength = Math.Min(file.Length, 256 * 1024 * 1024);
+                var hashTask = ctx.AddTask("[green]computing hash[/]", maxValue: maxLength);
+                var hashstream = new TruncateStream(file.OpenRead(), maxLength: maxLength, n => hashTask.Value = n);
+                var sha256 = await SHA256.Create().ComputeHashAsync(hashstream);
+                hash = Convert.ToHexString(sha256).ToLowerInvariant();
+                hashstream.Close();
+            });
+
+        await AnsiConsole.Status()
+            .StartAsync($"swarm is ingesting {file.Name} ...", async ctx =>
+            {
+                var client = new NodeHttpClient(settings.Url);
+                runner = await client.RegisterRunnerAsync(
+                    sourceFile: settings.Path,
+                    sourceFileHash: hash,
+                    name: name,
+                    runtime: settings.Runtime
+                    );
+            });
 
         AnsiConsole.WriteLine(runner.ToJsonString());
 

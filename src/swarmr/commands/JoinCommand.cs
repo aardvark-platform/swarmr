@@ -1,5 +1,6 @@
 ﻿using Spectre.Console.Cli;
 using Swarmr.Base;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 
@@ -34,7 +35,8 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             LastSeen: DateTimeOffset.UtcNow,
             Hostname: hostname,
             Port: settings.Port,
-            ConnectUrl: $"http://{hostname}:{settings.Port}"
+            ConnectUrl: $"http://{hostname}:{settings.Port}",
+            AvailableRunners: ImmutableDictionary<string, Runner>.Empty
             );
 
         var swarm = await Swarm.ConnectAsync(

@@ -1,8 +1,9 @@
 ﻿namespace Swarmr.Base;
 
 public record Runner(
-    DateTimeOffset Created,
     string Name,
+    DateTimeOffset Created,
     string Runtime,
-    string Hash
+    string Hash,
+    string FileName
     );
