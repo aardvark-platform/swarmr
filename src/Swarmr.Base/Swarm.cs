@@ -34,13 +34,7 @@ public class Swarm : ISwarm
     }
 
     [JsonIgnore]
-    public Node Self
-    {
-        get
-        {
-            lock (_nodes) return _nodes[SelfId];
-        }
-    }
+    public Node Self { get { lock (_nodes) return _nodes[SelfId]; } }
 
     /// <summary>
     /// Constructor.
@@ -54,7 +48,8 @@ public class Swarm : ISwarm
         string? url,
         Node self,
         string workdir,
-        bool verbose
+        bool verbose,
+        CancellationToken ct = default
         )
     {
         workdir = Path.GetFullPath(workdir);
@@ -74,7 +69,8 @@ public class Swarm : ISwarm
             swarm ??= new Swarm(self, workdir: workdir, verbose: verbose);
         }
 
-        swarm.StartHouseKeeping();
+        swarm.StartHouseKeeping(ct);
+
         return swarm;
     }
 
@@ -300,6 +296,13 @@ public class Swarm : ISwarm
         // done
         Console.WriteLine($"[RegisterRunnerAsync] registered runner {runner.ToJsonString()}");
         return new(runner);
+    }
+
+    public async Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)
+    {
+        var t = SwarmTask.Deserialize(request.Task);
+        await t.RunAsync(context: this);
+        return new();
     }
 
     #endregion

@@ -49,7 +49,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             else
             {
                 var wd = new DirectoryInfo(Info.DefaultWorkdir);
-                if (!settings.Yes)
+                if (!settings.Yes)  
                 {
                     var answer = AnsiConsole.Ask("Please specify a local workdir", wd.FullName);
                     wd = new DirectoryInfo(answer);

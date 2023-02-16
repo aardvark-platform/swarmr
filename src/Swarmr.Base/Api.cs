@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using Swarmr.Base.Tasks;
+using System.Runtime.CompilerServices;
 
 namespace Swarmr.Base.Api;
 
@@ -23,6 +24,9 @@ public record GetFailoverNomineeResponse(Node Nominee);
 public record RegisterRunnerRequest(string Source, string SourceHash, string Name, string Runtime);
 public record RegisterRunnerResponse(Runner Runner);
 
+public record SubmitTaskRequest(SwarmTask.Dto Task);
+public record SubmitTaskResponse();
+
 public interface ISwarm
 {
     Task<JoinSwarmResponse         > JoinSwarmAsync         (JoinSwarmRequest          request);
@@ -32,6 +36,7 @@ public interface ISwarm
     Task<RemoveNodesResponse       > RemoveNodesAsync       (RemoveNodesRequest        request);
     Task<GetFailoverNomineeResponse> GetFailoverNomineeAsync(GetFailoverNomineeRequest request);
     Task<RegisterRunnerResponse    > RegisterRunnerAsync    (RegisterRunnerRequest     request);
+    Task<SubmitTaskResponse        > SubmitTaskAsync        (SubmitTaskRequest         request);
 }
 
 public record SwarmRequest(string Type, object Request);
@@ -39,7 +44,9 @@ public record SwarmResponse(string Type, object Response);
 
 public static class INodeClientExtensions
 {
-    public static Task<SwarmResponse> RequestAsync(this ISwarm client, SwarmRequest request)
+    public static Task<SwarmResponse> RequestAsync(this ISwarm client,
+        SwarmRequest request
+        )
     {
         return request.Type switch
         {
@@ -50,6 +57,7 @@ public static class INodeClientExtensions
             nameof(RemoveNodesRequest       ) => call<RemoveNodesRequest       , RemoveNodesResponse       >(client.RemoveNodesAsync       ),
             nameof(GetFailoverNomineeRequest) => call<GetFailoverNomineeRequest, GetFailoverNomineeResponse>(client.GetFailoverNomineeAsync),
             nameof(RegisterRunnerRequest    ) => call<RegisterRunnerRequest    , RegisterRunnerResponse    >(client.RegisterRunnerAsync    ),
+            nameof(SubmitTaskRequest        ) => call<SubmitTaskRequest        , SubmitTaskResponse        >(client.SubmitTaskAsync        ),
 
             _ => throw new Exception( 
                 $"Unknown request \"{request.Type}\". " +
@@ -64,34 +72,46 @@ public static class INodeClientExtensions
             );
     }
 
-    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self, string workdir, bool verbose)
+    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client,
+        Node self,
+        string workdir,
+        bool verbose
+        )
     {
         var response = await client.JoinSwarmAsync(new(Candidate: self));
         return response.Swarm.ToSwarm(self: self, workdir: workdir, verbose: verbose);
     }
    
-    public static async Task HeartbeatAsync(this ISwarm client, Node self)
+    public static async Task HeartbeatAsync(this ISwarm client,
+        Node self
+        )
     {
         var _ = await client.HeartbeatAsync(new(NodeId: self.Id));
     }
 
-    public static async Task<Node> PingAsync(this ISwarm client)
+    public static async Task<Node> PingAsync(this ISwarm client
+        )
     {
         var response = await client.PingAsync(new());
         return response.Node;
     }
 
-    public static async Task UpdateNodeAsync(this ISwarm client, Node node)
+    public static async Task UpdateNodeAsync(this ISwarm client,
+        Node node
+        )
     {
         var _ = await client.UpdateNodeAsync(new(Node: node));
     }
 
-    public static async Task RemoveNodesAsync(this ISwarm client, IReadOnlyList<string> nodeIds)
+    public static async Task RemoveNodesAsync(this ISwarm client,
+        IReadOnlyList<string> nodeIds
+        )
     {
         var _ = await client.RemoveNodesAsync(new(NodeIds: nodeIds));
     }
 
-    public static async Task<Node> GetFailoverNomineeAsync(this ISwarm client)
+    public static async Task<Node> GetFailoverNomineeAsync(this ISwarm client
+        )
     {
         var response = await client.GetFailoverNomineeAsync(new());
         return response.Nominee;
@@ -111,5 +131,13 @@ public static class INodeClientExtensions
             Runtime: runtime
             ));
         return response.Runner;
+    }
+
+    public static async Task SubmitTaskAsync(this ISwarm client,
+        ISwarmTask task
+        )
+    {
+        var dto = SwarmTask.ToDto(task);
+        await client.SubmitTaskAsync(new(dto));
     }
 }

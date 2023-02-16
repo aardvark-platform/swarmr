@@ -3,10 +3,26 @@ GET http://localhost:5777 HTTP/1.1
 
 
 ###
-POST http://localhost:5777/join HTTP/1.1
+GET http://localhost:5777/version HTTP/1.1
 Content-Type: application/json
 
 {
     "id": "my id",
     "hostname": "foohost"
+}
+
+###
+POST http://localhost:5777/api HTTP/1.1
+Content-Type: application/json
+
+{
+    "type": "SubmitTaskRequest",
+    "request": {
+        "task": {
+            "type": "Swarmr.Base.Tasks.LogTask",
+            "task": {
+                "message": "hello world"
+            }
+        }
+    }
 }

@@ -15,7 +15,7 @@ public class NodeHttpClient : ISwarm
             message: "Error f8332b8b-d75f-4b14-b2db-4af8691e8477."
             );
 
-        _http = new HttpClient() { BaseAddress = new Uri(url) } ;
+        _http = new HttpClient() { BaseAddress = new Uri(url), Timeout = Swarm.NODE_TIMEOUT } ;
     }
 
     public NodeHttpClient(string host, int port) 
@@ -44,6 +44,9 @@ public class NodeHttpClient : ISwarm
 
     public Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
         => Call<RegisterRunnerResponse, RegisterRunnerRequest>(request);
+
+    public Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)
+        => Call<SubmitTaskResponse, SubmitTaskRequest>(request);
 
     #endregion
 
