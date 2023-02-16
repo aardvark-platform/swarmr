@@ -147,18 +147,18 @@ public static class SwarmUtils
     public static string ToJsonString(this object self, JsonSerializerOptions? jsonSerializerOptions = null)
         => JsonSerializer.Serialize(self, jsonSerializerOptions ?? JsonOptions);
 
-    public static T Deserialize<T>(object self) => self switch
+    public static object Deserialize(object self, Type type) => self switch
     {
-        T x => x,
+        object x when x.GetType() == type => x,
 
         JsonElement e =>
-            JsonSerializer.Deserialize<T>(e, JsonOptions)
+            JsonSerializer.Deserialize(e, type, JsonOptions)
             ?? throw new Exception(
                 "Error 81a683b2-8fbc-4a3f-b967-37013883b05e."
                 ),
 
         string s =>
-            JsonSerializer.Deserialize<T>(s, JsonOptions)
+            JsonSerializer.Deserialize(s, type, JsonOptions)
             ?? throw new Exception(
                 $"Failed to deserialize JSON \"{s}\". " +
                 $"Error a6a602f7-277a-4f76-9d80-8cbd2ecd78c1."
@@ -174,6 +174,9 @@ public static class SwarmUtils
             $"Error d6f9dfbd-ed17-4ba8-94c7-afa7e1663cd3."
             )
     };
+
+    public static T Deserialize<T>(object self)
+        => (T)Deserialize(self, typeof(T));
 
     public static readonly JsonSerializerOptions JsonOptions = new()
     {

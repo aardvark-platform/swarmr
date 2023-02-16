@@ -80,7 +80,7 @@ public class Swarm : ISwarm
         AnsiConsole.Write(swarmPanel);
     }
 
-    #region ISwarm
+    #region ISwarm message handlers (will be auto-detected)
 
     public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
     {
@@ -303,6 +303,57 @@ public class Swarm : ISwarm
         var t = SwarmTask.Deserialize(request.Task);
         await t.RunAsync(context: this);
         return new();
+    }
+
+    #endregion
+
+    #region ISwarm
+
+    private static Dictionary<string, Func<object, Task<SwarmResponse>>> _handlerCache = new();
+    public Task<SwarmResponse> SendAsync(SwarmRequest request)
+    {
+        if (!_handlerCache.TryGetValue(request.Type, out var handler))
+        {
+            var requestType =
+                Type.GetType(request.Type)
+                ?? Type.GetType($"Swarmr.Base.Api.{request.Type}")
+                ?? throw new Exception(
+                    $"Failed to find type \"{request.Type}\". " +
+                    $"Error 51d5d721-e588-4785-acf1-b0dab351119e."
+                    );
+
+            var methods = typeof(Swarm).GetMethods();
+            var method = methods.SingleOrDefault(info =>
+                {
+                    var ps = info.GetParameters();
+                    if (ps.Length != 1) return false;
+                    return ps[0].ParameterType == requestType;
+                }) 
+                ?? throw new Exception(
+                    $"Failed to find handler for request type \"{requestType}\". " +
+                    $"Error e3baf1d6-a2f4-4058-8a12-8a7976d57bc9."
+                    );
+
+            handler = async x =>
+            {
+                var arg = SwarmUtils.Deserialize(x, requestType);
+                var o = method.Invoke(this, new[] { arg });
+                var t = o as Task ?? throw new Exception("Not a task. Error 7cf6d3fc-dc42-47f6-8ef9-dc267bdb0c29.");
+                await t.WaitAsync(TimeSpan.FromSeconds(10));
+                var result = (object)((dynamic)t).Result;
+                var responseType = result.GetType().AssemblyQualifiedName ?? throw new Exception(
+                    $"Failed to get AssemblyQualifiedName for type \"{result.GetType()}\". " +
+                    $"Error 15125585-a168-467e-8e1e-e9c620b3dca3."
+                    );
+                var response = new SwarmResponse(Type: responseType, Response: result);
+                return response;
+            };
+
+            _handlerCache[request.Type] = handler;
+            if (Verbose) AnsiConsole.MarkupLine($"[fuchsia][[SendAsync]] cached handler for {request.Type}[/]");
+        }
+
+        return handler(request.Request);
     }
 
     #endregion

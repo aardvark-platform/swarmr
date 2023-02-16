@@ -54,7 +54,9 @@ public class Server
                 await context.Request.ReadFromJsonAsync<SwarmRequest>() 
                 ?? throw new Exception("Error df347207-7548-452e-a3f9-8224c3e6ef01.");
 
-            var response = await swarm.RequestAsync(request);
+            //var s = request.ToJsonString();
+
+            var response = await swarm.SendAsync(request);
 
             return Results.Json(response);
         });
