@@ -18,6 +18,10 @@ public class NodeHttpClient : ISwarm
         _http = new HttpClient() { BaseAddress = new Uri(url) } ;
     }
 
+    public NodeHttpClient(string host, int port) 
+        : this($"http://{host}:{port}")
+    { }
+
     #region ISwarm
 
     public Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)

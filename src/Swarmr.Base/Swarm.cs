@@ -1,5 +1,6 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
+using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
@@ -11,11 +12,11 @@ public class Swarm : ISwarm
     public static readonly TimeSpan NODE_TIMEOUT = TimeSpan.FromSeconds(15);
     public const string DEFAULT_WORKDIR = ".swarmr";
 
-    public string SelfId { get; }
+    public string? SelfId { get; }
     public string? PrimaryId { get; private set; }
     public string WorkDir { get; }
 
-    public bool IAmPrimary => SelfId == PrimaryId;
+    public bool IAmPrimary => SelfId != null && SelfId == PrimaryId;
     public IReadOnlyList<Node> Nodes
     {
         get
@@ -26,46 +27,46 @@ public class Swarm : ISwarm
     public bool TryGetPrimaryNode([NotNullWhen(true)]out Node? primary)
     {
         var primaryId = PrimaryId;
-        lock (_nodes)
-        {
-            if (primaryId != null)
-            {
-                return _nodes.TryGetValue(primaryId, out primary);
-            }
-            else
-            {
-                primary = null;
-                return false;
-            }
-        }
+        if (primaryId == null) { primary = null; return false; }
+        lock (_nodes) return _nodes.TryGetValue(primaryId, out primary);
+    }
+    public bool TryGetSelfNode([NotNullWhen(true)] out Node? self)
+    {
+        var selfId = PrimaryId;
+        if (selfId == null) { self = null; return false; }
+        lock (_nodes) return _nodes.TryGetValue(selfId, out self);
     }
 
     /// <summary>
     /// Constructor.
     /// </summary>
+    /// <param name="url">
+    /// URL of an active swarm node. 
+    /// Joins this node's swarm.
+    /// If null, then swarm of one will be created.</param>
     /// <param name="self"></param>
-    /// <param name="url">URL of an active swarm node. Joins this node's swarm.</param>
     /// <returns></returns>
     public static async Task<Swarm> ConnectAsync(
-        Node self,
         string? url,
+        Node self,
         string workdir
         )
     {
-        if (url != null && url.EndsWith('/')) url = url[..^1];
         workdir = Path.GetFullPath(workdir);
 
-        Swarm swarm;
+        Swarm? swarm = null;
         if (url != null)
         {
             // clone the swarm from the node at given URL
+            AnsiConsole.WriteLine($"connecting to {url} ...");
             var swarmNode = new NodeHttpClient(url);
             swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir);
+            AnsiConsole.WriteLine($"connected to {url} ...");
         }
         else
         {
             // create a new swarm of one, with myself as primary
-            swarm = new Swarm(self, workdir: workdir);
+            swarm ??= new Swarm(self, workdir: workdir);
         }
 
         swarm.StartHouseKeeping();
@@ -82,40 +83,43 @@ public class Swarm : ISwarm
 
     public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
     {
-        var candidate = request.Candidate with { LastSeen = DateTimeOffset.UtcNow };
-        UpsertNode(request.Candidate);
+        if (request.Candidate != null)
+        {
+            var candidate = request.Candidate with { LastSeen = DateTimeOffset.UtcNow };
+            UpsertNode(candidate);
 
-        if (IAmPrimary)
-        {
-            // notify all nodes of newly joined node ...
-            await NotifyOthersAboutNewNode(request.Candidate);
-        }
-        else
-        {
-            if (TryGetPrimaryNode(out var primary))
+            if (IAmPrimary)
             {
-                // notify primary node about candidate
-                try
-                {
-                    await primary.Client.UpdateNodeAsync(request.Candidate);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(
-                        $"[JoinSwarmAsync] failed to notify primary node {primary.Id} " +
-                        $"about candidate \"{request.Candidate.Id}\", " +
-                        $"because of {e.Message}"
-                        );
-                }
+                // notify all nodes of newly joined node ...
+                await NotifyOthersAboutNewNode(request.Candidate);
             }
             else
             {
-                Console.WriteLine($"[HouseKeeping] there is no primary");
-                await Failover();
+                if (TryGetPrimaryNode(out var primary))
+                {
+                    // notify primary node about candidate
+                    try
+                    {
+                        await primary.Client.UpdateNodeAsync(request.Candidate);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(
+                            $"[JoinSwarmAsync] failed to notify primary node {primary.Id} " +
+                            $"about candidate \"{request.Candidate.Id}\", " +
+                            $"because of {e.Message}"
+                            );
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[HouseKeeping] there is no primary");
+                    await Failover();
+                }
             }
-        }
 
-        PrintNice();
+            PrintNice();
+        }
 
         return new JoinSwarmResponse(Swarm: Dto.FromSwarm(this));
     }
@@ -139,12 +143,22 @@ public class Swarm : ISwarm
 
     public Task<PingResponse> PingAsync(PingRequest request)
     {
-        var response = new PingResponse(Node: Self);
-        return Task.FromResult(response);
+        if (TryGetSelfNode(out var self))
+        {
+            self = UpsertNode(self with { LastSeen = DateTimeOffset.UtcNow });
+            var response = new PingResponse(Node: self);
+            return Task.FromResult(response);
+        }
+        else
+        {
+            throw new InvalidOperationException("Invalid operation.");
+        }
     }
 
     public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
     {
+        if (!TryGetSelfNode(out var self)) throw new InvalidOperationException("Invalid operation.");
+
         var node = request.Node;
 
         if (IAmPrimary)
@@ -159,7 +173,7 @@ public class Swarm : ISwarm
 
         foreach (var (name, runner) in node.AvailableRunners)
         {
-            if (Self.HasRunnerWithHash(runner.Hash)) continue;
+            if (self.HasRunnerWithHash(runner.Hash) == true) continue;
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new runner {runner.ToJsonString()}");
 
@@ -181,10 +195,10 @@ public class Swarm : ISwarm
                 AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ... completed");
             }
 
-            var newSelf = Self with 
+            var newSelf = self with 
             {
                 LastSeen = DateTimeOffset.UtcNow,
-                AvailableRunners = Self.AvailableRunners.SetItem(name, runner) 
+                AvailableRunners = self.AvailableRunners.SetItem(name, runner) 
             };
             UpsertNode(newSelf);
             if (TryGetPrimaryNode(out var primary))
@@ -214,10 +228,10 @@ public class Swarm : ISwarm
         // there seems to be an ongoing failover election
 
         // (1) let's see if I am the primary
-        if (IAmPrimary)
+        if (TryGetSelfNode(out var self) && IAmPrimary)
         {
             // mmmh, I am obviously alive - let's nominate myself
-            return new(Nominee: Self);
+            return new(Nominee: self);
         }
 
         // (2) choose nominee from node list
@@ -227,6 +241,8 @@ public class Swarm : ISwarm
 
     public async Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
     {
+        if (!TryGetSelfNode(out var self)) throw new InvalidOperationException("Invalid operation.");
+
         var sw = new Stopwatch();
 
         var sourcefile = new FileInfo(request.Source);
@@ -274,10 +290,10 @@ public class Swarm : ISwarm
         }
 
         // (5) update self
-        var newSelf = Self with
+        var newSelf = self with
         {
             LastSeen = DateTimeOffset.UtcNow,
-            AvailableRunners = Self.AvailableRunners.SetItem(runner.Name, runner)
+            AvailableRunners = self.AvailableRunners.SetItem(runner.Name, runner)
         };
         UpsertNode(newSelf);
 
@@ -301,7 +317,7 @@ public class Swarm : ISwarm
         IReadOnlyList<Node> Nodes
         )
     {
-        public Swarm ToSwarm(Node self, string workdir) => new(this, self, workdir);
+        public Swarm ToSwarm(Node? self, string? workdir) => new(this, self, workdir);
         public static Dto FromSwarm(Swarm swarm) => new(
             Primary: swarm.PrimaryId,
             Nodes: swarm.Nodes
@@ -314,19 +330,22 @@ public class Swarm : ISwarm
         : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>())
     { }
 
-    private Swarm(Dto dto, Node self, string workdir) 
+    private Swarm(Dto dto, Node? self, string? workdir) 
         : this(self, workdir: workdir, primary: dto.Primary, dto.Nodes)
     { }
 
-    private Swarm(Node self, string workdir, string? primary, IEnumerable<Node> nodes)
+    private Swarm(Node? self, string? workdir, string? primary, IEnumerable<Node> nodes)
     {
         foreach (var n in nodes) _nodes.Add(n.Id, n);
-        _nodes[self.Id] = self;
-        SelfId = self.Id;
-        WorkDir = workdir;
+        if (self != null)
+        {
+            _nodes[self.Id] = self;
+            SelfId = self.Id;
+        }
+        WorkDir = Path.GetFullPath(workdir ?? Info.DefaultWorkDir);
         PrimaryId = primary;
 
-        var d = new DirectoryInfo(workdir);
+        var d = new DirectoryInfo(WorkDir);
         if (!d.Exists)
         {
             AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
@@ -343,7 +362,8 @@ public class Swarm : ISwarm
                 //Console.WriteLine($"[HouseKeeping] {DateTimeOffset.UtcNow}");
 
                 // update myself
-                UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
+                if (!TryGetSelfNode(out var self)) throw new InvalidOperationException("Invalid operation.");
+                UpsertNode(self with { LastSeen = DateTimeOffset.UtcNow });
 
                 // consistency checks
                 await CheckAndRepairDuplicateEntries();
@@ -393,18 +413,7 @@ public class Swarm : ISwarm
         }
     }
 
-    private Node Self
-    {
-        get
-        {
-            lock (_nodes)
-            {
-                return _nodes[SelfId];
-            }
-        }
-    }
-
-    private void UpsertNode(Node n)
+    private Node UpsertNode(Node n)
     {
         lock (_nodes)
         {
@@ -412,13 +421,14 @@ public class Swarm : ISwarm
             {
                 if (existing.LastSeen > n.LastSeen)
                 {
-                    // we already have a newer state
-                    AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] we have a newer node state -> ignoring upsert[/]");
-                    return;
+                    // we already have a newer state -> ignore update
+                    AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] outdated node state[/]");
+                    return existing;
                 }
             }
 
             _nodes[n.Id] = n;
+            return n;
         }
     }
 

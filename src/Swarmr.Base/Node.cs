@@ -9,11 +9,12 @@ public record Node(
     DateTimeOffset LastSeen,
     string Hostname,
     int Port,
-    string ConnectUrl,
     ImmutableDictionary<string, Runner> AvailableRunners
     )
 {
     public TimeSpan Ago => DateTimeOffset.UtcNow - LastSeen;
+
+    public string ConnectUrl => $"http://{Hostname}:{Port}";
 
     public string[] GetDownloadLinks(Runner runner)
     {

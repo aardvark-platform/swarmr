@@ -1,10 +1,149 @@
-﻿using System.Text.Json;
+﻿using Spectre.Console;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
 
+public record ProbeResult(
+    string Hostname,
+    NodePort[] Ports
+    )
+{
+    /// <summary>
+    /// Returns first free port, or null if all ports are used. 
+    /// </summary>
+    public bool TryGetFreePort([NotNullWhen(true)] out int? port)
+    {
+        var p = Ports.FirstOrDefault(x => x.Status == NodePortStatus.Free);
+        if (p != null)
+        {
+            port = p.Port;
+            return true;
+        }
+        else
+        {
+            port = null;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns a live port, or null if no node is running.
+    /// </summary>
+    public bool TryGetLivePort([NotNullWhen(true)] out int? port)
+    {
+        var ps = Ports.Where(x => x.Status == NodePortStatus.LiveNode).ToArray();
+        if (ps.Length > 0)
+        {
+            port = ps[Random.Shared.Next(ps.Length)].Port;
+            return true;
+        }
+        else
+        {
+            port = null;
+            return false;
+        }
+    }
+}
+
+public record NodePort(
+    int Port,
+    NodePortStatus Status,
+    string? Version
+    );
+
+public enum NodePortStatus
+{
+    LiveNode,
+    LiveNodeWithDifferentVersion,
+    Unavailable,
+    Free,
+}
+
 public static class SwarmUtils
 {
+    public static (string? hostname, int? port) ParseHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return (null, null);
+
+        string hostname = "localhost";
+        int? port = null;
+
+        var s = host.Trim();
+
+        {
+            var i = s.IndexOf("://");
+            if (i >= 0) s = s[(i + 3)..];
+        }
+
+        {
+            var i = s.IndexOf('/');
+            if (i >= 0) s = s[..i];
+        }
+
+        {
+            if (s.EndsWith(':')) s = s[..^1];
+
+            switch (s.IndexOf(':'))
+            {
+                case 0:
+                    port = int.Parse(s[1..]);
+                    break;
+                case int i when i > 0:
+                    hostname = s[..i];
+                    port = int.Parse(s[(i + 1)..]);
+                    break;
+                default:
+                    if (s.Length > 0) hostname = s;
+                    break;
+            }
+        }
+
+        return (hostname, port);
+    }
+
+    public static async Task<ProbeResult> ProbeHostAsync(string hostname)
+    {
+        // probe localhost for running nodes to connect to ...
+        using var http = new HttpClient()
+        {
+            Timeout = TimeSpan.FromSeconds(1)
+        };
+
+        var ports = await Task.WhenAll(
+            Enumerable
+                .Range(start: Info.DefaultPort, count: Info.DefaultPortRange)
+                .Select(async port =>
+                {
+                    try
+                    {
+                        var response = await http.GetAsync($"http://{hostname}:{port}/version");
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var version = await response.Content.ReadAsStringAsync();
+                            var isCurrentVersion = version == Info.Version;
+                            return new NodePort(
+                                Port   : port,
+                                Status : isCurrentVersion ? NodePortStatus.LiveNode : NodePortStatus.LiveNodeWithDifferentVersion,
+                                Version: version
+                                );
+                        }
+                        else
+                        {
+                            return new NodePort(port, NodePortStatus.Unavailable, Version: null);
+                        }
+                    }
+                    catch
+                    {
+                        return new NodePort(port, NodePortStatus.Free, Version: null);
+                    }
+                })
+            );
+
+        return new ProbeResult(Hostname: hostname, Ports: ports);
+    }
+
     public static string ToJsonString(this object self, JsonSerializerOptions? jsonSerializerOptions = null)
         => JsonSerializer.Serialize(self, jsonSerializerOptions ?? JsonOptions);
 

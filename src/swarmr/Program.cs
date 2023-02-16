@@ -16,7 +16,7 @@ app.Configure(config =>
     config
         .AddCommand<JoinCommand>("join")
         .WithDescription("Joins swarm.")
-        .WithExample(new[] { "join", "http://node5.lan" })
+        .WithExample(new[] { "join", "node5.lan" })
         ;
 
     config

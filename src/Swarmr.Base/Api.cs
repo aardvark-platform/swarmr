@@ -1,7 +1,4 @@
-﻿using Spectre.Console;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
+﻿using System.Runtime.CompilerServices;
 
 namespace Swarmr.Base.Api;
 
@@ -67,7 +64,7 @@ public static class INodeClientExtensions
             );
     }
 
-    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self, string workdir)
+    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self, string? workdir = null)
     {
         var response = await client.JoinSwarmAsync(new(Candidate: self));
         return response.Swarm.ToSwarm(self: self, workdir: workdir);

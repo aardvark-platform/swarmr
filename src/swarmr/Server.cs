@@ -6,7 +6,7 @@ namespace swarmr;
 
 public class Server
 {
-    public static Task RunAsync(Swarm swarm, int port)
+    public static async Task<WebApplication> RunAsync(Swarm swarm, int port)
     {
         var args = Environment.GetCommandLineArgs();
         var builder = WebApplication.CreateBuilder(args);
@@ -46,6 +46,8 @@ public class Server
 
         app.MapGet("/", () => $"Swarmr {Info.Version}");
 
+        app.MapGet("/version", () => $"{Info.Version}");
+
         app.MapPost("/api", async (HttpContext context) =>
         {
             var request =
@@ -68,7 +70,9 @@ public class Server
         //    await server.OnUpdate(async p => await hubContext.Clients.All.OnUpdated(p));
         //}
 
-        return app.RunAsync();
+        await app.StartAsync();
+
+        return app;
     }
 }
     
