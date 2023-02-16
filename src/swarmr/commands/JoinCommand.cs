@@ -1,7 +1,6 @@
 ﻿using Spectre.Console;
 using Spectre.Console.Cli;
 using Swarmr.Base;
-using Swarmr.Base.Api;
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
@@ -25,19 +24,49 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
 
         [Description("Local working directory. ")]
         [CommandOption("-w|--workdir <LOCALDIR>")]
-        [DefaultValue(".swarmr")]
-        public string WorkDir { get; init; } = null!;
+        public string? Workdir { get; internal set; }
+
+        [Description("Print additional information. ")]
+        [CommandOption("-v|--verbose")]
+        public bool Verbose { get; init; }
+
+        [Description("Automatic yes to prompts. ")]
+        [CommandOption("-y|--yes")]
+        public bool Yes { get; init; }
     }
 
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
     {
+        // (0) Arguments.
         var (remoteHost, remotePort) = SwarmUtils.ParseHost(settings.RemoteHost);
+        if (string.IsNullOrWhiteSpace(settings.Workdir))
+        {
+            var config = await LocalConfig.LoadAsync();
+            if (config.Workdir != null)
+            {
+                settings.Workdir = config.Workdir;
+            }
+            else
+            {
+                var wd = new DirectoryInfo(Info.DefaultWorkdir);
+                if (!settings.Yes)
+                {
+                    var answer = AnsiConsole.Ask("Please specify a local workdir", wd.FullName);
+                    wd = new DirectoryInfo(answer);
+                }
 
-        ProbeResult? probe = null;
+                if (!wd.Exists) wd.Create();
+                config = config with { Workdir = wd.FullName };
+                await config.SaveAsync();
+
+                settings.Workdir = wd.FullName;
+            }
+        }
 
         // (1) Construct the 'remoteUrl', which is
         // - the URL of a running node, which we will use to join the swarm.
         // - or null, which will create a new swarm (with ourselve as only node).
+        ProbeResult? probe = null;
         if (remotePort == null)
         {
             // We don't care about a specific port!
@@ -74,7 +103,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             }
         }
 
-
+        // (3) Create our node.
         var hostname = Environment.MachineName.ToLowerInvariant();
         var myself = new Node(
             Id: Guid.NewGuid().ToString(),
@@ -85,17 +114,22 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             AvailableRunners: ImmutableDictionary<string, Runner>.Empty
             );
 
+        // (4) Connect to the swarm.
         var swarm = await Swarm.ConnectAsync(
                 url: remoteUrl,
                 self: myself,
-                workdir: settings.WorkDir
+                workdir: settings.Workdir,
+                verbose: settings.Verbose
                 );
 
+        // (5) Start our node/server.
         var app = await Server.RunAsync(swarm: swarm, port: listenPort.Value);
         if (app == null) return 1;
 
-        swarm.PrintNice();
-
+        if (settings.Verbose)
+        {
+            swarm.PrintNice();
+        }
 
         await app.WaitForShutdownAsync();
 

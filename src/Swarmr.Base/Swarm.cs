@@ -14,7 +14,8 @@ public class Swarm : ISwarm
 
     public string? SelfId { get; }
     public string? PrimaryId { get; private set; }
-    public string WorkDir { get; }
+    public string Workdir { get; }
+    public bool Verbose { get; }
 
     public bool IAmPrimary => SelfId != null && SelfId == PrimaryId;
     public IReadOnlyList<Node> Nodes
@@ -45,11 +46,11 @@ public class Swarm : ISwarm
     /// Joins this node's swarm.
     /// If null, then swarm of one will be created.</param>
     /// <param name="self"></param>
-    /// <returns></returns>
     public static async Task<Swarm> ConnectAsync(
         string? url,
         Node self,
-        string workdir
+        string workdir,
+        bool verbose
         )
     {
         workdir = Path.GetFullPath(workdir);
@@ -58,15 +59,15 @@ public class Swarm : ISwarm
         if (url != null)
         {
             // clone the swarm from the node at given URL
-            AnsiConsole.WriteLine($"connecting to {url} ...");
+            if (verbose) AnsiConsole.WriteLine($"connecting to {url} ...");
             var swarmNode = new NodeHttpClient(url);
-            swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir);
-            AnsiConsole.WriteLine($"connected to {url} ...");
+            swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir, verbose: verbose);
+            if (verbose) AnsiConsole.WriteLine($"connecting to {url} ... done");
         }
         else
         {
             // create a new swarm of one, with myself as primary
-            swarm ??= new Swarm(self, workdir: workdir);
+            swarm ??= new Swarm(self, workdir: workdir, verbose: verbose);
         }
 
         swarm.StartHouseKeeping();
@@ -317,7 +318,14 @@ public class Swarm : ISwarm
         IReadOnlyList<Node> Nodes
         )
     {
-        public Swarm ToSwarm(Node? self, string? workdir) => new(this, self, workdir);
+        public Swarm ToSwarm(Node self, string workdir, bool verbose) => new(
+            self: self,
+            workdir: workdir,
+            primary: Primary,
+            nodes: Nodes,
+            verbose: verbose
+            );
+
         public static Dto FromSwarm(Swarm swarm) => new(
             Primary: swarm.PrimaryId,
             Nodes: swarm.Nodes
@@ -326,15 +334,15 @@ public class Swarm : ISwarm
 
     private readonly Dictionary<string, Node> _nodes = new();
 
-    private Swarm(Node self, string workdir)
-        : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>())
+    private Swarm(Node self, string workdir, bool verbose)
+        : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>(), verbose: verbose)
     { }
 
-    private Swarm(Dto dto, Node? self, string? workdir) 
-        : this(self, workdir: workdir, primary: dto.Primary, dto.Nodes)
+    private Swarm(Dto dto, Node? self, string? workdir, bool verbose) 
+        : this(self, workdir: workdir, primary: dto.Primary, dto.Nodes, verbose: verbose)
     { }
 
-    private Swarm(Node? self, string? workdir, string? primary, IEnumerable<Node> nodes)
+    private Swarm(Node? self, string? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
     {
         foreach (var n in nodes) _nodes.Add(n.Id, n);
         if (self != null)
@@ -342,10 +350,11 @@ public class Swarm : ISwarm
             _nodes[self.Id] = self;
             SelfId = self.Id;
         }
-        WorkDir = Path.GetFullPath(workdir ?? Info.DefaultWorkDir);
+        Workdir = Path.GetFullPath(workdir ?? Info.DefaultWorkdir);
+        Verbose = verbose;
         PrimaryId = primary;
 
-        var d = new DirectoryInfo(WorkDir);
+        var d = new DirectoryInfo(Workdir);
         if (!d.Exists)
         {
             AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
@@ -662,7 +671,7 @@ public class Swarm : ISwarm
 
     // [WORKDIR]/runners/[NAME]
     private DirectoryInfo GetRunnerDir(string name)
-        => new(Path.Combine(WorkDir, "runners", name));
+        => new(Path.Combine(Workdir, "runners", name));
 
     // [WORKDIR]/runners/[NAME]/executable
     private DirectoryInfo GetRunnerExecutableDir(string name)

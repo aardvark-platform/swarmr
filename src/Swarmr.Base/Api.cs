@@ -64,10 +64,10 @@ public static class INodeClientExtensions
             );
     }
 
-    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self, string? workdir = null)
+    public static async Task<Swarm> JoinSwarmAsync(this ISwarm client, Node self, string workdir, bool verbose)
     {
         var response = await client.JoinSwarmAsync(new(Candidate: self));
-        return response.Swarm.ToSwarm(self: self, workdir: workdir);
+        return response.Swarm.ToSwarm(self: self, workdir: workdir, verbose: verbose);
     }
    
     public static async Task HeartbeatAsync(this ISwarm client, Node self)
