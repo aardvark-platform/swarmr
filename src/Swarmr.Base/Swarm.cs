@@ -422,7 +422,7 @@ public class Swarm : ISwarm
                 if (existing.LastSeen > n.LastSeen)
                 {
                     // we already have a newer state -> ignore update
-                    AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] outdated node state[/]");
+                    AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] outdated node state ({n.LastSeen- existing.LastSeen})[/]");
                     return existing;
                 }
             }
