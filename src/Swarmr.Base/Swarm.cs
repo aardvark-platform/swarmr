@@ -1,6 +1,5 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
-using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
@@ -12,12 +11,13 @@ public class Swarm : ISwarm
     public static readonly TimeSpan NODE_TIMEOUT = TimeSpan.FromSeconds(15);
     public const string DEFAULT_WORKDIR = ".swarmr";
 
-    public string? SelfId { get; }
+    public string SelfId { get; }
     public string? PrimaryId { get; private set; }
     public string Workdir { get; }
     public bool Verbose { get; }
 
     public bool IAmPrimary => SelfId != null && SelfId == PrimaryId;
+    public string WorkdirPort => Path.Combine(Workdir, Self.Port.ToString());
     public IReadOnlyList<Node> Nodes
     {
         get
@@ -31,11 +31,12 @@ public class Swarm : ISwarm
         if (primaryId == null) { primary = null; return false; }
         lock (_nodes) return _nodes.TryGetValue(primaryId, out primary);
     }
-    public bool TryGetSelfNode([NotNullWhen(true)] out Node? self)
+    public Node Self
     {
-        var selfId = PrimaryId;
-        if (selfId == null) { self = null; return false; }
-        lock (_nodes) return _nodes.TryGetValue(selfId, out self);
+        get
+        {
+            lock (_nodes) return _nodes[SelfId];
+        }
     }
 
     /// <summary>
@@ -144,22 +145,13 @@ public class Swarm : ISwarm
 
     public Task<PingResponse> PingAsync(PingRequest request)
     {
-        if (TryGetSelfNode(out var self))
-        {
-            self = UpsertNode(self with { LastSeen = DateTimeOffset.UtcNow });
-            var response = new PingResponse(Node: self);
-            return Task.FromResult(response);
-        }
-        else
-        {
-            throw new InvalidOperationException("Invalid operation.");
-        }
+        var newSelf = UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
+        var response = new PingResponse(Node: newSelf);
+        return Task.FromResult(response);
     }
 
     public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
     {
-        if (!TryGetSelfNode(out var self)) throw new InvalidOperationException("Invalid operation.");
-
         var node = request.Node;
 
         if (IAmPrimary)
@@ -174,7 +166,7 @@ public class Swarm : ISwarm
 
         foreach (var (name, runner) in node.AvailableRunners)
         {
-            if (self.HasRunnerWithHash(runner.Hash) == true) continue;
+            if (Self.HasRunnerWithHash(runner.Hash) == true) continue;
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new runner {runner.ToJsonString()}");
 
@@ -196,10 +188,10 @@ public class Swarm : ISwarm
                 AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ... completed");
             }
 
-            var newSelf = self with 
+            var newSelf = Self with 
             {
                 LastSeen = DateTimeOffset.UtcNow,
-                AvailableRunners = self.AvailableRunners.SetItem(name, runner) 
+                AvailableRunners = Self.AvailableRunners.SetItem(name, runner) 
             };
             UpsertNode(newSelf);
             if (TryGetPrimaryNode(out var primary))
@@ -229,10 +221,10 @@ public class Swarm : ISwarm
         // there seems to be an ongoing failover election
 
         // (1) let's see if I am the primary
-        if (TryGetSelfNode(out var self) && IAmPrimary)
+        if (IAmPrimary)
         {
             // mmmh, I am obviously alive - let's nominate myself
-            return new(Nominee: self);
+            return new(Nominee: Self);
         }
 
         // (2) choose nominee from node list
@@ -242,8 +234,6 @@ public class Swarm : ISwarm
 
     public async Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
     {
-        if (!TryGetSelfNode(out var self)) throw new InvalidOperationException("Invalid operation.");
-
         var sw = new Stopwatch();
 
         var sourcefile = new FileInfo(request.Source);
@@ -291,10 +281,10 @@ public class Swarm : ISwarm
         }
 
         // (5) update self
-        var newSelf = self with
+        var newSelf = Self with
         {
             LastSeen = DateTimeOffset.UtcNow,
-            AvailableRunners = self.AvailableRunners.SetItem(runner.Name, runner)
+            AvailableRunners = Self.AvailableRunners.SetItem(runner.Name, runner)
         };
         UpsertNode(newSelf);
 
@@ -338,18 +328,12 @@ public class Swarm : ISwarm
         : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>(), verbose: verbose)
     { }
 
-    private Swarm(Dto dto, Node? self, string? workdir, bool verbose) 
-        : this(self, workdir: workdir, primary: dto.Primary, dto.Nodes, verbose: verbose)
-    { }
-
-    private Swarm(Node? self, string? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
+    private Swarm(Node self, string? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
     {
+        _nodes[self.Id] = self;
+        SelfId = self.Id;
         foreach (var n in nodes) _nodes.Add(n.Id, n);
-        if (self != null)
-        {
-            _nodes[self.Id] = self;
-            SelfId = self.Id;
-        }
+
         Workdir = Path.GetFullPath(workdir ?? Info.DefaultWorkdir);
         Verbose = verbose;
         PrimaryId = primary;
@@ -371,8 +355,7 @@ public class Swarm : ISwarm
                 //Console.WriteLine($"[HouseKeeping] {DateTimeOffset.UtcNow}");
 
                 // update myself
-                if (!TryGetSelfNode(out var self)) throw new InvalidOperationException("Invalid operation.");
-                UpsertNode(self with { LastSeen = DateTimeOffset.UtcNow });
+                UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
 
                 // consistency checks
                 await CheckAndRepairDuplicateEntries();
