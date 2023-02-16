@@ -2,6 +2,7 @@
 using Swarmr.Base.Api;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
 
@@ -31,6 +32,8 @@ public class Swarm : ISwarm
         if (primaryId == null) { primary = null; return false; }
         lock (_nodes) return _nodes.TryGetValue(primaryId, out primary);
     }
+
+    [JsonIgnore]
     public Node Self
     {
         get
@@ -330,9 +333,10 @@ public class Swarm : ISwarm
 
     private Swarm(Node self, string? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
     {
+        foreach (var n in nodes) _nodes.Add(n.Id, n);
+
         _nodes[self.Id] = self;
         SelfId = self.Id;
-        foreach (var n in nodes) _nodes.Add(n.Id, n);
 
         Workdir = Path.GetFullPath(workdir ?? Info.DefaultWorkdir);
         Verbose = verbose;
