@@ -1,6 +1,5 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
-using System.Xml.Linq;
 
 namespace Swarmr.Base.Tasks;
 

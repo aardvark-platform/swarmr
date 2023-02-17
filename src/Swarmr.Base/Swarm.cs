@@ -214,6 +214,13 @@ public class Swarm : ISwarm
         return new(Task: t);
     }
 
+    public async Task<RunJobResponse> RunJobAsync(RunJobRequest request)
+    {
+        var t = RunJobTask.Create(request);
+        await _swarmTaskQueue.Enqueue(t);
+        return new(Task: t);
+    }
+
     public async Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)
     {
         var t = SwarmTask.Deserialize(request.Task);
@@ -667,6 +674,12 @@ public class Swarm : ISwarm
         {
             return null;
         }
+    }
+
+    internal FileInfo GetSwarmFilePath(SwarmFile swarmfile)
+    {
+        var info = new FileInfo(Path.Combine(GetSwarmFileDir(swarmfile.Name).FullName, swarmfile.FileName));
+        return info;
     }
 
     internal async Task WriteSwarmFileAsync(SwarmFile f)
