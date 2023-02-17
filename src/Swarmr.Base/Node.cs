@@ -9,31 +9,23 @@ public record Node(
     DateTimeOffset LastSeen,
     string Hostname,
     int Port,
-    ImmutableDictionary<string, Runner> AvailableRunners
+    ImmutableDictionary<string, SwarmFile> SwarmFiles
     )
 {
     public TimeSpan Ago => DateTimeOffset.UtcNow - LastSeen;
 
     public string ConnectUrl => $"http://{Hostname}:{Port}";
 
-    public string[] GetDownloadLinks(Runner runner)
+    public string[] GetDownloadLinks(SwarmFile requestedSwarmFile)
     {
-        if (!HasRunnerWithHash(runner.Hash))
-        {
-            throw new Exception($"Runner is not available from this node: {runner.ToJsonString()}");
-        }
-
         var connectUrl = ConnectUrl.EndsWith('/') ? ConnectUrl[..^1] : ConnectUrl;
-        var prefix = $"{connectUrl}/static/runners/{runner.Name}/executable";
+        var prefix = $"{connectUrl}/static/files/{requestedSwarmFile.Name}";
         return new[]
         {
-            $"{prefix}/{runner.FileName}",
-            $"{prefix}/runner.json"
+            $"{prefix}/{requestedSwarmFile.FileName}",
+            $"{prefix}/file.json"
         };
     }
-
-    public bool HasRunnerWithHash(string hash)
-        => AvailableRunners.Values.Select(x => x.Hash).Contains(hash);
 
     [JsonIgnore]
     public NodeHttpClient Client => new(ConnectUrl);

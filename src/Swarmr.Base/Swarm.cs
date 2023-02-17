@@ -1,6 +1,6 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
-using System.Diagnostics;
+using Swarmr.Base.Tasks;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 
@@ -11,6 +11,8 @@ public class Swarm : ISwarm
     public static readonly TimeSpan HOUSEKEEPING_INTERVAL = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan NODE_TIMEOUT = TimeSpan.FromSeconds(15);
     public const string DEFAULT_WORKDIR = ".swarmr";
+
+    private readonly SwarmTaskQueue _swarmTaskQueue = new();
 
     public string SelfId { get; }
     public string? PrimaryId { get; private set; }
@@ -69,7 +71,11 @@ public class Swarm : ISwarm
             swarm ??= new Swarm(self, workdir: workdir, verbose: verbose);
         }
 
-        swarm.StartHouseKeeping(ct);
+        // start housekeeping (background)
+        swarm.StartHouseKeepingAsync(ct);
+
+        // start swarm task queue processing (background)
+        swarm.StartSwarmTasksProcessingAsync(ct);
 
         return swarm;
     }
@@ -163,40 +169,10 @@ public class Swarm : ISwarm
         UpsertNode(node);
         PrintNice();
 
-        foreach (var (name, runner) in node.AvailableRunners)
+        // sync swarm files
+        if (node.Id != Self.Id)
         {
-            if (Self.HasRunnerWithHash(runner.Hash) == true) continue;
-
-            AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new runner {runner.ToJsonString()}");
-
-            var dir = GetRunnerExecutableDir(runner.Name);
-            if (!dir.Exists) dir.Create();
-
-            var urls = node.GetDownloadLinks(runner);
-            using var http = new HttpClient();
-            foreach (var url in urls)
-            {
-                var targetFileName = Path.Combine(dir.FullName, Path.GetFileName(url));
-
-                AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ...");
-                var source = await http.GetStreamAsync(url);
-                var target = File.Open(targetFileName, FileMode.Create, FileAccess.Write, FileShare.None);
-                await source.CopyToAsync(target);
-                target.Close();
-                source.Close();
-                AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFileName} ... completed");
-            }
-
-            var newSelf = Self with 
-            {
-                LastSeen = DateTimeOffset.UtcNow,
-                AvailableRunners = Self.AvailableRunners.SetItem(name, runner) 
-            };
-            UpsertNode(newSelf);
-            if (TryGetPrimaryNode(out var primary))
-            {
-                await primary.Client.UpdateNodeAsync(newSelf);
-            }
+            await _swarmTaskQueue.Enqueue(new SyncSwarmFilesTask(node));
         }
 
         return new();
@@ -231,71 +207,11 @@ public class Swarm : ISwarm
         return new(Nominee: nominee);
     }
 
-    public async Task<RegisterRunnerResponse> RegisterRunnerAsync(RegisterRunnerRequest request)
+    public async Task<IngestFileResponse> IngestFileAsync(IngestFileRequest request)
     {
-        var sw = new Stopwatch();
-
-        var sourcefile = new FileInfo(request.Source);
-        if (!sourcefile.Exists) throw new Exception($"File does not exist (\"{request.Source}\").");
-
-        // (1) EXEDIR = [WORKDIR]/runners/[NAME]/executable
-        var exedir = GetRunnerExecutableDir(request.Name);
-        if (!exedir.Exists) exedir.Create();
-
-        // (2) copy [SOURCE].zip to [EXEDIR]/[HASH].zip
-        var targetFileName = request.SourceHash + sourcefile.Extension;
-        var targetfile = new FileInfo(Path.Combine(exedir.FullName, targetFileName));
-        var targetstream = targetfile.OpenWrite();
-        var sourcestream = sourcefile.OpenRead();
-        Console.WriteLine($"[RegisterRunnerAsync] copy {sourcefile.FullName} ...");
-        sw.Restart();
-        await sourcestream.CopyToAsync(targetstream);
-        targetstream.Close();
-        sourcestream.Close();
-        sw.Stop();
-        Console.WriteLine($"[RegisterRunnerAsync] copy {sourcefile.FullName} ... {sw.Elapsed}");
-        Console.WriteLine($"[RegisterRunnerAsync] created {targetfile.FullName}");
-
-        // (3) write [EXEDIR]/runner.json
-        var runner = new Runner(
-            Created: DateTimeOffset.UtcNow,
-            Name: request.Name,
-            Runtime: request.Runtime,
-            Hash: Path.GetFileNameWithoutExtension(targetfile.Name),
-            FileName: targetfile.Name
-            );
-
-        await File.WriteAllTextAsync(
-            path: Path.Combine(exedir.FullName, "runner.json"),
-            contents: runner.ToJsonString()
-            );
-        
-        // (4) delete old version(s)
-        foreach (var info in exedir.EnumerateFileSystemInfos())
-        {
-            if (info.Name == "runner.json") continue;
-            if (info.Name == targetFileName) continue;
-            info.Delete();
-            Console.WriteLine($"[RegisterRunnerAsync] deleted {info.FullName}");
-        }
-
-        // (5) update self
-        var newSelf = Self with
-        {
-            LastSeen = DateTimeOffset.UtcNow,
-            AvailableRunners = Self.AvailableRunners.SetItem(runner.Name, runner)
-        };
-        UpsertNode(newSelf);
-
-        // (6) report available runner
-        if (TryGetPrimaryNode(out var primary))
-        {
-            await primary.Client.UpdateNodeAsync(newSelf);
-        }
-
-        // done
-        Console.WriteLine($"[RegisterRunnerAsync] registered runner {runner.ToJsonString()}");
-        return new(runner);
+        var t = IngestFileTask.Create(request);
+        await _swarmTaskQueue.Enqueue(t);
+        return new(Task: t);
     }
 
     public async Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)
@@ -404,8 +320,9 @@ public class Swarm : ISwarm
         }
     }
 
-    private async void StartHouseKeeping(CancellationToken ct = default)
+    private async void StartHouseKeepingAsync(CancellationToken ct = default)
     {
+        AnsiConsole.WriteLine("[HouseKeeping] start");
         while (!ct.IsCancellationRequested)
         {
             try
@@ -440,21 +357,21 @@ public class Swarm : ISwarm
                         catch (Exception e)
                         {
                             // failed to ping primary
-                            Console.WriteLine($"[HouseKeeping] failed to ping primary, because of {e.Message}");
+                            AnsiConsole.WriteLine($"[HouseKeeping] failed to ping primary, because of {e.Message}");
                             await Failover();
                         }
                     }
                     else
                     {
                         // there is no primary
-                        Console.WriteLine($"[HouseKeeping] there is no primary");
+                        AnsiConsole.WriteLine($"[HouseKeeping] there is no primary");
                         await Failover();
                     }
                 }
             }
             catch (Exception e)
             {
-                Console.WriteLine($"[HouseKeeping][Error] {e}");
+                AnsiConsole.WriteLine($"[HouseKeeping][Error] {e}");
             }
             finally
             {
@@ -463,7 +380,31 @@ public class Swarm : ISwarm
         }
     }
 
-    private Node UpsertNode(Node n)
+    private async void StartSwarmTasksProcessingAsync(CancellationToken ct = default)
+    {
+        AnsiConsole.WriteLine("[SwarmTasksProcessing] start");
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var t = await _swarmTaskQueue.TryDequeue();
+                if (t != null)
+                {
+                    await t.RunAsync(this);
+                }
+                else
+                {
+                    await Task.Delay(2000, ct);
+                }
+            }
+            catch (Exception e)
+            {
+                AnsiConsole.WriteLine($"[SwarmTasksProcessing][Error] {e}");
+            }
+        }
+    }
+
+    internal Node UpsertNode(Node n)
     {
         lock (_nodes)
         {
@@ -710,13 +651,29 @@ public class Swarm : ISwarm
         return nominee;
     }
 
-    // [WORKDIR]/runners/[NAME]
-    private DirectoryInfo GetRunnerDir(string name)
-        => new(Path.Combine(Workdir, "runners", name));
+    // [WORKDIR]/files/[NAME]
+    internal DirectoryInfo GetSwarmFileDir(string name)
+        => new(Path.Combine(Workdir, "files", name));
 
-    // [WORKDIR]/runners/[NAME]/executable
-    private DirectoryInfo GetRunnerExecutableDir(string name)
-        => new(Path.Combine(GetRunnerDir(name).FullName, "executable"));
+    internal async Task<SwarmFile?> TryReadSwarmFileAsync(string name)
+    {
+        var file = new FileInfo(Path.Combine(GetSwarmFileDir(name).FullName, "file.json"));
+        if (file.Exists)
+        {
+            var s = await File.ReadAllTextAsync(file.FullName);
+            return SwarmUtils.Deserialize<SwarmFile>(s);
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    internal async Task WriteSwarmFileAsync(SwarmFile f)
+    {
+        var file = new FileInfo(Path.Combine(GetSwarmFileDir(f.Name).FullName, "file.json"));
+        await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
+    }
 
     #endregion
 }

@@ -1,6 +1,7 @@
 ﻿using Spectre.Console;
 using Spectre.Console.Cli;
 using Swarmr.Base;
+using Swarmr.Base.Tasks;
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
@@ -111,7 +112,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             LastSeen: DateTimeOffset.UtcNow,
             Hostname: hostname,
             Port: listenPort.Value,
-            AvailableRunners: ImmutableDictionary<string, Runner>.Empty
+            SwarmFiles: ImmutableDictionary<string, SwarmFile>.Empty
             );
 
         // (4) Connect to the swarm.

@@ -1,9 +1,8 @@
 ﻿namespace Swarmr.Base;
 
-public record Runner(
+public record SwarmFile(
     string Name,
     DateTimeOffset Created,
-    string Runtime,
     string Hash,
     string FileName
     );

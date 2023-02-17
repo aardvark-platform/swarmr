@@ -20,8 +20,8 @@ public record RemoveNodesResponse();
 public record GetFailoverNomineeRequest();
 public record GetFailoverNomineeResponse(Node Nominee);
 
-public record RegisterRunnerRequest(string Source, string SourceHash, string Name, string Runtime);
-public record RegisterRunnerResponse(Runner Runner);
+public record IngestFileRequest(string LocalFilePath, string LocalFileHash, string Name);
+public record IngestFileResponse(IngestFileTask Task);
 
 public record SubmitTaskRequest(SwarmTask.Dto Task);
 public record SubmitTaskResponse();
@@ -106,20 +106,18 @@ public static class INodeClientExtensions
         return response.Nominee;
     }
 
-    public static async Task<Runner> RegisterRunnerAsync(this ISwarm client, 
-        string sourceFile,
-        string sourceFileHash,
-        string name, 
-        string runtime
+    public static async Task<IngestFileTask> IngestFileAsync(this ISwarm client, 
+        string localFilePath,
+        string localFileHash,
+        string name
         )
     {
-        var response = await client.SendAsync<RegisterRunnerRequest, RegisterRunnerResponse>(new(
-            Source: sourceFile,
-            SourceHash: sourceFileHash,
-            Name: name,
-            Runtime: runtime
+        var response = await client.SendAsync<IngestFileRequest, IngestFileResponse>(new(
+            LocalFilePath: localFilePath,
+            LocalFileHash: localFileHash,
+            Name: name
             ));
-        return response.Runner;
+        return response.Task;
     }
 
     public static async Task SubmitTaskAsync(this ISwarm client,

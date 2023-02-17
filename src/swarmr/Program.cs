@@ -20,18 +20,9 @@ app.Configure(config =>
         ;
 
     config
-        .AddBranch("runners", c =>
-        {
-            c.SetDescription(
-                "Manages runners."
-                );
-
-            c.AddCommand<RunnersRegisterCommand>("register")
-                  .WithDescription("Registers a new runner.")
-                  .WithExample(new[] { "runners", "register", "\"./myrunner.zip\"" })
-                  .WithExample(new[] { "runners", "register", "\"./myrunner.zip\"", "--name", "\"my test runner\"", "-r", "\"linux-x64\"" })
-                  ;
-        })
+        .AddCommand<IngestCommand>("ingest")
+        .WithDescription("Uploads files into the swarm.")
+        .WithExample(new[] { "ingest", "example.zip" })
         ;
 
     config

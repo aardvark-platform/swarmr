@@ -16,7 +16,7 @@ public record JobData(
 /// <param name="ResultPaths">Files and dirs that should be synced back.</param>
 /// <param name="DataId"></param>
 public record Job(
-    Runner Runner,
+    SwarmFile Runner,
     string CommandLine,
     ImmutableList<JobData> Input,
     ImmutableList<string> ResultPaths
