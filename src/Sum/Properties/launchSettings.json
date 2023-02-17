@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Sum": {
+      "commandName": "Project",
+      "commandLineArgs": "create 10"
+    }
+  }
+}

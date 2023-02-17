@@ -21,6 +21,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "_", "_", "{F993FCEC-20FE-4E
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Swarmr.Tests", "Swarmr.Tests\Swarmr.Tests.csproj", "{1A438968-515D-4228-9BD1-9D1AB110F4C6}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{7D333CFE-B9DB-481A-999E-DAA15AF6CDD4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sum", "Sum\Sum.csproj", "{C34F9A19-110D-4C60-8FC4-02412E291450}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,9 +43,17 @@ Global
 		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1A438968-515D-4228-9BD1-9D1AB110F4C6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C34F9A19-110D-4C60-8FC4-02412E291450}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C34F9A19-110D-4C60-8FC4-02412E291450}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C34F9A19-110D-4C60-8FC4-02412E291450}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C34F9A19-110D-4C60-8FC4-02412E291450}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1A438968-515D-4228-9BD1-9D1AB110F4C6} = {7D333CFE-B9DB-481A-999E-DAA15AF6CDD4}
+		{C34F9A19-110D-4C60-8FC4-02412E291450} = {7D333CFE-B9DB-481A-999E-DAA15AF6CDD4}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C301CF15-B933-4AC5-ACDA-840C54B031C7}

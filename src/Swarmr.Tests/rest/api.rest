@@ -29,9 +29,15 @@ Content-Type: application/json
 {
     "type": "RunJobRequest",
     "request": {
-        "inputFileNames": [
-            "atti/exe",
-            "atti/kermit"
+        "prepare": [
+            { "path": ".", "swarmfile": "atti/exe" },
+            { "path": ".", "swarmfile": "atti/kermit" }
+        ],
+        "commands": [
+            "./bin/Release/net6.0/MondoCli.exe --name kermit --build 1337 --localinput ./kermit --localoutput ./out"
+        ],
+        "save": [
+            { "path": "./out", "swarmfile": "atti/run1337" }
         ]
     }
 }
