@@ -62,6 +62,12 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
 
                 settings.Workdir = wd.FullName;
             }
+
+            if (settings.Verbose)
+            {
+                AnsiConsole.WriteLine($"local config : {LocalConfig.LocalConfigPath}");
+                AnsiConsole.WriteLine($"local workdir: {config.Workdir}");
+            }
         }
 
         // (1) Construct the 'remoteUrl', which is

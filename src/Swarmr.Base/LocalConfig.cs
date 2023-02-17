@@ -5,7 +5,7 @@ public record LocalConfig(
     string? Workdir
     )
 {
-    private static readonly FileInfo LocalConfigPath = new(
+    public static readonly FileInfo LocalConfigPath = new(
         Path.Combine(
             Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData,
