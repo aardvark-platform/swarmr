@@ -2,8 +2,6 @@
 using Swarmr.Base.Api;
 using System.Diagnostics;
 using System.IO.Compression;
-using System.IO.Enumeration;
-using System.Text;
 
 namespace Swarmr.Base.Tasks;
 
@@ -20,6 +18,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
     public async Task RunAsync(Swarm context)
     {
         AnsiConsole.WriteLine($"[RunJobTask] starting job {Id}");
+        AnsiConsole.WriteLine($"[RunJobTask] {DateTimeOffset.Now}");
         AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
 
         // (0) create temporary job directory
@@ -27,12 +26,12 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
         if (jobDir.Exists)
         {
-            AnsiConsole.WriteLine($"[RunJobTask] job dir already exists: {jobDir}");
+            AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [yellow]job dir already exists[/] {jobDir}");
         }
         else
         {
             jobDir.Create();
-            AnsiConsole.WriteLine($"[RunJobTask] created job dir {jobDir}");
+            AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created job dir[/] {jobDir}");
         }
 
         try
@@ -46,12 +45,12 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                     var swarmFile = await context.TryReadSwarmFileAsync(ifn);
                     if (swarmFile != null)
                     {
-                        AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}: {swarmFile.ToJsonString()}");
+                        AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
                         var source = context.GetSwarmFilePath(swarmFile);
 
-                        AnsiConsole.WriteLine($"[RunJobTask][Setup] extracting {swarmFile.Name} ...");
+                        AnsiConsole.WriteLine($"    extracting {swarmFile.Name} ...");
                         ZipFile.ExtractToDirectory(source.FullName, jobDir.FullName, overwriteFiles: true);
-                        AnsiConsole.WriteLine($"[RunJobTask][Setup] extracting {swarmFile.Name} ... done");
+                        AnsiConsole.WriteLine($"    extracting {swarmFile.Name} ... done");
                     }
                     else
                     {
@@ -65,7 +64,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
             // (2) execute command lines
             {
-                var commandLines = Request.Job.Execute ?? Array.Empty<JobConfig.ExeConfig>();
+                var commandLines = Request.Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
                 var imax = commandLines.Count;
                 for (var i = 0; i < imax; i++)
                 {
@@ -90,22 +89,37 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                 //var e = z.CreateEntry("foo");
                 //var writestream = e.Open();
 
-                var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
-                foreach (var collectPath in collectPaths)
+                var collectPaths = Request.Job.Collect ?? Array.Empty<JobConfig.CollectItem>();
+                var imax = collectPaths.Count;
+                for (var i = 0; i < imax; i++)
                 {
+                    var (path, swarmfile) = collectPaths[i];
+                    path = Path.Combine(jobDir.FullName, path);
 
+                    AnsiConsole.WriteLine($"[RunJobTask][Collect][{i + 1}/{imax}] {path} {swarmfile}");
+
+                    if (File.Exists(path))
+                    {
+                        AnsiConsole.WriteLine($"    FILE {path}");
+                    }
+                    else if (Directory.Exists(path))
+                    {
+                        AnsiConsole.WriteLine($"    DIR  {path}");
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine($"    [red]ERROR {path.EscapeMarkup()} does not exist[/]");
+                    }
                 }
             }
-
-
-            AnsiConsole.WriteLine($"[RunJobTask] NOT IMPLEMENTED");
         }
         finally
         {
             // (4) cleanup
-            AnsiConsole.WriteLine($"[RunJobTask][CLEANUP] delete {jobDir.FullName} ... ");
-            //jobDir.Delete(recursive: true);
-            AnsiConsole.WriteLine($"[RunJobTask][CLEANUP] delete {jobDir.FullName} ... done");
+            AnsiConsole.WriteLine($"[RunJobTask][CLEANUP]");
+            AnsiConsole.WriteLine($"    DELETE {jobDir.FullName} ... ");
+            jobDir.Delete(recursive: true);
+            AnsiConsole.WriteLine($"    DELETE {jobDir.FullName} ... done");
         }
     }
 
@@ -133,7 +147,16 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         await stdout.BaseStream.CopyToAsync(consoleout);
         AnsiConsole.WriteLine($"attached stdout");
 
-        AnsiConsole.WriteLine($"awaiting exit");
+        AnsiConsole.WriteLine($"[{DateTimeOffset.UtcNow}] awaiting exit");
         await process.WaitForExitAsync();
+        if (process.ExitCode == 0)
+        {
+            AnsiConsole.MarkupLine($"[[{DateTimeOffset.UtcNow}]] [green]exit {process.ExitCode}[/]");
+        }
+        else
+        {
+
+            AnsiConsole.MarkupLine($"[[{DateTimeOffset.UtcNow}]] [red]exit {process.ExitCode}[/]");
+        }
     }
 }

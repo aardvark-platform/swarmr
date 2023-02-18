@@ -22,8 +22,18 @@ switch (args[0])
                 .Select(line => decimal.Parse(line))
                 .ToArray()
                 ;
-            Console.WriteLine($"parsed {xs.Length} values");
-            Console.WriteLine($"sum is {xs.Sum()}");
+
+            if (args.Length > 1)
+            {
+                using var stdout = new StreamWriter(File.OpenWrite(args[1]));
+                stdout.WriteLine($"parsed {xs.Length} values");
+                stdout.WriteLine($"sum is {xs.Sum()}");
+            }
+            else
+            {
+                Console.WriteLine($"parsed {xs.Length} values");
+                Console.WriteLine($"sum is {xs.Sum()}");
+            }
             break;
         }
 }

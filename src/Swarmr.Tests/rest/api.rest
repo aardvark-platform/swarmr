@@ -35,10 +35,11 @@ Content-Type: application/json
                 "sm/test/data1"
             ],
             "execute": [
-                { "exe": "Sum.exe", "args": "data1.txt" }
+                { "exe": "Sum.exe", "args": "data1.txt out.txt" }
             ],
             "collect": [
-
+                { "path": "out.txt", "swarmfile": "sm/test/result" },
+                { "path": ".", "swarmfile": "sm/test/result.full" }
             ]
         }
     }

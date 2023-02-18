@@ -10,12 +10,13 @@ namespace Swarmr.Base;
 /// <param name="ResultFile">Swarm file name for saved results.</param>
 public record JobConfig(
     IReadOnlyList<string>? Setup,
-    IReadOnlyList<ExeConfig>? Execute,
-    IReadOnlyList<string>? Collect,
+    IReadOnlyList<ExecuteItem>? Execute,
+    IReadOnlyList<CollectItem>? Collect,
     string ResultFile
     )
 {
-    public record ExeConfig(string Exe, string Args);
+    public record ExecuteItem(string Exe, string Args);
+    public record CollectItem(string Path, string SwarmFile);
 }
 
 public static class Jobs
