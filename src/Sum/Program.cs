@@ -6,6 +6,11 @@ Console.WriteLine($"stdout log");
 Console.WriteLine($"start at {DateTimeOffset.Now}");
 Console.WriteLine($"args: {string.Join(' ', args)}");
 
+var delay = TimeSpan.FromSeconds(7 + Random.Shared.Next(10));
+Console.WriteLine($"[{DateTimeOffset.Now}] simulating work for {delay}");
+await Task.Delay(delay);
+Console.WriteLine($"[{DateTimeOffset.Now}] simulated work done");
+
 switch (args[0])
 {
     case "create":
