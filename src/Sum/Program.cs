@@ -2,6 +2,10 @@
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 
+Console.WriteLine($"stdout log");
+Console.WriteLine($"start at {DateTimeOffset.Now}");
+Console.WriteLine($"args: {string.Join(' ', args)}");
+
 switch (args[0])
 {
     case "create":

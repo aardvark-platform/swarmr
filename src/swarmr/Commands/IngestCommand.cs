@@ -53,7 +53,7 @@ public class IngestCommand : AsyncCommand<IngestCommand.Settings>
             {
                 var hashTask = ctx.AddTask("[green]computing hash[/]", maxValue: 1.0);
                 var s = 1.0 / file.Length;
-                await SwarmFile.ComputeHashAsync(file, n => hashTask.Value = n * s);
+                hash = await SwarmFile.ComputeHashAsync(file, n => hashTask.Value = n * s);
             });
 
         var result = await swarm.IngestFileAsync(

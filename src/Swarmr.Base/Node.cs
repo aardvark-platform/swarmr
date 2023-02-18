@@ -19,7 +19,7 @@ public record Node(
     public string[] GetDownloadLinks(SwarmFile requestedSwarmFile)
     {
         var connectUrl = ConnectUrl.EndsWith('/') ? ConnectUrl[..^1] : ConnectUrl;
-        var prefix = $"{connectUrl}/static/files/{requestedSwarmFile.Name}";
+        var prefix = $"{connectUrl}/static/files/{requestedSwarmFile.LogicalName}";
         return new[]
         {
             $"{prefix}/{requestedSwarmFile.FileName}",

@@ -48,9 +48,9 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                         AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
                         var source = context.LocalSwarmFiles.GetContentFile(swarmFile);
 
-                        AnsiConsole.WriteLine($"    extracting {swarmFile.Name} ...");
+                        AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ...");
                         ZipFile.ExtractToDirectory(source.FullName, jobDir.FullName, overwriteFiles: true);
-                        AnsiConsole.WriteLine($"    extracting {swarmFile.Name} ... done");
+                        AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ... done");
                     }
                     else
                     {
@@ -74,7 +74,13 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                     AnsiConsole.WriteLine($"[RunJobTask][Execute][{i+1}/{imax}] {exe.FullName} {args}");
                     try
                     {
-                        await Execute(exe, args, jobDir);
+                        var stdoutFile = context.LocalSwarmFiles.Create(logicalName: $"log/{Id}/log{i}.txt");
+                        var stdoutStream = context.LocalSwarmFiles.GetContentFile(stdoutFile).OpenWrite();
+
+                        await Execute(exe, args, jobDir, stdoutStream);
+
+                        stdoutStream.Close();
+                        await context.LocalSwarmFiles.SetHashFromContentFile(stdoutFile);
                     }
                     catch (Exception e)
                     {
@@ -87,11 +93,11 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             {
                 var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
                 var resultSwarmFile = new SwarmFile(
-                    Name: Request.Job.Result,
                     Created: DateTimeOffset.UtcNow,
-                    Hash: "replace after zip file has been created",
+                    LogicalName: Request.Job.Result,
                     FileName: Path.GetFileName(Request.Job.Result) + ".zip"
-                    );
+,
+                    Hash: "replace after zip file has been created");
                 var archiveFile = context.LocalSwarmFiles.GetContentFile(resultSwarmFile);
                 {
                     var dir = archiveFile.Directory ?? throw new Exception(
@@ -181,7 +187,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         }
     }
 
-    private static async Task Execute(FileInfo exe, string args, DirectoryInfo dir)
+    private static async Task Execute(FileInfo exe, string args, DirectoryInfo exeWorkingDir, Stream stdoutTarget)
     {
         var processStartInfo = new ProcessStartInfo
         {
@@ -190,7 +196,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             CreateNoWindow = true,
             UseShellExecute = false,
             RedirectStandardOutput = true, 
-            WorkingDirectory = dir.FullName
+            WorkingDirectory = exeWorkingDir.FullName
         };
 
         var process = new Process
@@ -201,8 +207,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.WriteLine($"newProcessStarted = {newProcessStarted}");
 
         using var stdout = process.StandardOutput;
-        using var consoleout = Console.OpenStandardOutput();
-        await stdout.BaseStream.CopyToAsync(consoleout);
+        await stdout.BaseStream.CopyToAsync(stdoutTarget);
         AnsiConsole.WriteLine($"attached stdout");
 
         AnsiConsole.WriteLine($"[{DateTimeOffset.UtcNow}] awaiting exit");

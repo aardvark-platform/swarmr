@@ -12,7 +12,7 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
     {
         foreach (var otherSwarmFile in Other.SwarmFiles.Values)
         {
-            var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(otherSwarmFile.Name);
+            var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(otherSwarmFile.LogicalName);
             if (ownSwarmFile != null && ownSwarmFile.Hash == otherSwarmFile.Hash) continue;
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new swarm file {otherSwarmFile.ToJsonString()}");
@@ -38,7 +38,7 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
             var newSelf = context.Self with
             {
                 LastSeen = DateTimeOffset.UtcNow,
-                SwarmFiles = context.Self.SwarmFiles.SetItem(otherSwarmFile.Name, otherSwarmFile)
+                SwarmFiles = context.Self.SwarmFiles.SetItem(otherSwarmFile.LogicalName, otherSwarmFile)
             };
             context.UpsertNode(newSelf);
             if (context.TryGetPrimaryNode(out var primary))

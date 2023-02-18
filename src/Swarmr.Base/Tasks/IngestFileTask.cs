@@ -54,9 +54,9 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
         // (3) write [TARGETDIR]/file.json
         var newSwarmFile = new SwarmFile(
             Created: DateTimeOffset.UtcNow,
-            Name: Request.Name,
-            Hash: Request.LocalFileHash,
-            FileName: targetFile.Name
+            LogicalName: Request.Name,
+            FileName: targetFile.Name,
+            Hash: Request.LocalFileHash
             );
         await context.LocalSwarmFiles.WriteAsync(newSwarmFile);
 
@@ -64,7 +64,7 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
         var newSelf = context.Self with
         {
             LastSeen = DateTimeOffset.UtcNow,
-            SwarmFiles = context.Self.SwarmFiles.SetItem(newSwarmFile.Name, newSwarmFile)
+            SwarmFiles = context.Self.SwarmFiles.SetItem(newSwarmFile.LogicalName, newSwarmFile)
         };
         context.UpsertNode(newSelf);
 

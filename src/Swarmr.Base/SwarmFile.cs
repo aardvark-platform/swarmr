@@ -4,10 +4,10 @@ using System.Security.Cryptography;
 namespace Swarmr.Base;
 
 public record SwarmFile(
-    string Name,
     DateTimeOffset Created,
-    string Hash,
-    string FileName
+    string LogicalName,
+    string FileName,
+    string? Hash
     )
 {
     public static async Task<string> ComputeHashAsync(FileInfo file, Action<long>? progress = null)
@@ -41,6 +41,23 @@ public class LocalSwarmFiles
         return dir;
     }
 
+    public bool Exists(string logicalName)
+        => GetMetadataFile(logicalName).Exists;
+
+    public SwarmFile Create(string logicalName)
+    {
+        if (Exists(logicalName)) throw new Exception(
+            $"SwarmFile \"{logicalName}\" already exists. " +
+            $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
+            );
+        return new SwarmFile(
+            Created: DateTimeOffset.Now,
+            LogicalName: logicalName,
+            FileName: Path.GetFileName(logicalName),
+            Hash: null!
+            );
+    }
+
     private FileInfo GetMetadataFile(string logicalName)
         => new(Path.Combine(GetOrCreateDir(logicalName).FullName, "file.json"));
 
@@ -48,7 +65,7 @@ public class LocalSwarmFiles
         => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
 
     public FileInfo GetContentFile(SwarmFile swarmfile)
-        => new(Path.Combine(GetOrCreateDir(swarmfile.Name).FullName, swarmfile.FileName));
+        => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, swarmfile.FileName));
 
     public async Task<SwarmFile?> TryReadAsync(string name)
     {
@@ -67,7 +84,7 @@ public class LocalSwarmFiles
 
     public async Task WriteAsync(SwarmFile f)
     {
-        var file = GetMetadataFile(f.Name);
+        var file = GetMetadataFile(f.LogicalName);
         await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
 
         // delete old content files (with different name)
@@ -78,5 +95,17 @@ public class LocalSwarmFiles
             info.Delete();
             AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
         }
+    }
+
+    public async Task SetHashFromContentFile(SwarmFile f, Action<long>? progress = null)
+    {
+        if (f.Hash != null) throw new Exception(
+            "Can only set hash if undefined. " +
+            "Error d9480da7-e263-4b64-b2db-b9b316cb88dd."
+            );
+
+        var h = await SwarmFile.ComputeHashAsync(GetContentFile(f), progress);
+        f = f with { Hash = h };
+        await WriteAsync(f);
     }
 }
