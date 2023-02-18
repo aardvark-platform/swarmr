@@ -1,4 +1,6 @@
 @echo off
 SETLOCAL
 
-%~dp0\bin\swarmr\swarmr.exe %*
+PUSHD %~dp0\bin\swarmr
+swarmr.exe %*
+POPD

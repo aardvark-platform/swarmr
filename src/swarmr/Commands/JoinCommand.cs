@@ -50,7 +50,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             else
             {
                 var wd = new DirectoryInfo(Info.DefaultWorkdir);
-                if (!settings.Yes)  
+                if (!settings.Yes)
                 {
                     var answer = AnsiConsole.Ask("Please specify a local workdir", wd.FullName);
                     wd = new DirectoryInfo(answer);
@@ -81,7 +81,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             // Let's try to auto-detect a live port.
             // If no specific host is specified either,
             // then we try localhost by default.
-            var probeHost = remoteHost ?? "localhost"; 
+            var probeHost = remoteHost ?? "localhost";
 
             probe = await SwarmUtils.ProbeHostAsync(probeHost);
             if (probe.TryGetLivePort(out remotePort)) remoteHost = probe.Hostname;
@@ -136,6 +136,10 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
         if (settings.Verbose)
         {
             swarm.PrintNice();
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[green]connected[/]");
         }
 
         await app.WaitForShutdownAsync();

@@ -1,7 +1,6 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
 using System.Diagnostics;
-using System.IO;
 using System.IO.Compression;
 
 namespace Swarmr.Base.Tasks;

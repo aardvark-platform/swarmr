@@ -2,6 +2,7 @@
 using Swarmr.Base.Api;
 using Swarmr.Base.Tasks;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
@@ -21,7 +22,10 @@ public class Swarm : ISwarm
     public bool Verbose { get; }
 
     public bool IAmPrimary => SelfId != null && SelfId == PrimaryId;
-    public string WorkdirPort => Path.Combine(Workdir, Self.Port.ToString());
+
+    /// <summary>
+    /// All nodes (including self).
+    /// </summary>
     public IReadOnlyList<Node> Nodes
     {
         get
@@ -29,15 +33,45 @@ public class Swarm : ISwarm
             lock (_nodes) return _nodes.Values.ToArray();
         }
     }
-    public bool TryGetPrimaryNode([NotNullWhen(true)]out Node? primary)
+
+    /// <summary>
+    /// All nodes (except self).
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<Node> Others => Nodes.Where(n => n.Id != SelfId).ToArray();
+
+    [JsonIgnore]
+    public Node Self { get { lock (_nodes) return _nodes[SelfId]; } }
+
+    /// <summary>
+    /// Returns primary node.
+    /// Throws if no primary.
+    /// </summary>
+    [JsonIgnore]
+    public Node Primary
+    {
+        get
+        {
+            lock (_nodes)
+            {
+                if (PrimaryId != null && _nodes.TryGetValue(PrimaryId, out var primary))
+                {
+                    return primary;
+                }
+                else
+                {
+                    throw new Exception("No primary node. Error c6034aa5-cff3-483c-8d5c-5a804746231f.");
+                }
+            }
+        }
+    }
+
+    public bool TryGetPrimaryNode([NotNullWhen(true)] out Node? primary)
     {
         var primaryId = PrimaryId;
         if (primaryId == null) { primary = null; return false; }
         lock (_nodes) return _nodes.TryGetValue(primaryId, out primary);
     }
-
-    [JsonIgnore]
-    public Node Self { get { lock (_nodes) return _nodes[SelfId]; } }
 
     /// <summary>
     /// Constructor.
@@ -91,44 +125,29 @@ public class Swarm : ISwarm
 
     public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
     {
-        if (request.Candidate != null)
-        {
-            var candidate = request.Candidate with { LastSeen = DateTimeOffset.UtcNow };
-            UpsertNode(candidate);
+        var c = request.Candidate with { LastSeen = DateTimeOffset.UtcNow };
 
-            if (IAmPrimary)
+        if (IAmPrimary)
+        {
+            // notify all nodes of newly joined node ...
+            await NotifyOthersAboutNewNode(c);
+            UpsertNode(c);
+        }
+        else
+        {
+            if (TryGetPrimaryNode(out var primary))
             {
-                // notify all nodes of newly joined node ...
-                await NotifyOthersAboutNewNode(request.Candidate);
+                // notify primary node about candidate
+                await primary.Client.UpdateNodeAsync(c); 
             }
             else
             {
-                if (TryGetPrimaryNode(out var primary))
-                {
-                    // notify primary node about candidate
-                    try
-                    {
-                        await primary.Client.UpdateNodeAsync(request.Candidate);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(
-                            $"[JoinSwarmAsync] failed to notify primary node {primary.Id} " +
-                            $"about candidate \"{request.Candidate.Id}\", " +
-                            $"because of {e.Message}"
-                            );
-                    }
-                }
-                else
-                {
-                    Console.WriteLine($"[HouseKeeping] there is no primary");
-                    await Failover();
-                }
+                Console.WriteLine($"[JoinSwarmAsync] there is no primary");
+                throw new Exception("There is no primary node.");
             }
-
-            PrintNice();
         }
 
+        if (Verbose) PrintNice();
         return new JoinSwarmResponse(Swarm: Dto.FromSwarm(this));
     }
 
@@ -203,7 +222,7 @@ public class Swarm : ISwarm
             return new(Nominee: Self);
         }
 
-        // (2) choose nominee from node list
+        // (2) choose nominee from my node list
         var nominee = await ChooseNomineeForPrimary();
         return new(Nominee: nominee);
     }
@@ -332,12 +351,19 @@ public class Swarm : ISwarm
 
     private async void StartHouseKeepingAsync(CancellationToken ct = default)
     {
-        AnsiConsole.WriteLine("[HouseKeeping] start");
+        if (Verbose) AnsiConsole.WriteLine("[HouseKeeping] start");
+
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 //Console.WriteLine($"[HouseKeeping] {DateTimeOffset.UtcNow}");
+
+                if (_failover.CurrentCount == 0)
+                {
+                    Console.WriteLine($"[HouseKeeping] {DateTimeOffset.UtcNow} failover in progress");
+                    continue; // failover in progress ...
+                }
 
                 // update myself
                 UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
@@ -355,10 +381,10 @@ public class Swarm : ISwarm
                 }
                 else
                 {
-                    // I'm yet another node
+                    // get primary node ...
                     if (TryGetPrimaryNode(out var primary))
                     {
-                        // ping primary node
+                        // ping primary node ...
                         try
                         {
                             var updatedPrimary = await primary.Client.PingAsync();
@@ -368,14 +394,16 @@ public class Swarm : ISwarm
                         {
                             // failed to ping primary
                             AnsiConsole.WriteLine($"[HouseKeeping] failed to ping primary, because of {e.Message}");
-                            await Failover();
+                            FailoverAsync();
+                            continue;
                         }
                     }
                     else
                     {
                         // there is no primary
                         AnsiConsole.WriteLine($"[HouseKeeping] there is no primary");
-                        await Failover();
+                        FailoverAsync();
+                        continue;
                     }
                 }
             }
@@ -392,7 +420,8 @@ public class Swarm : ISwarm
 
     private async void StartSwarmTasksProcessingAsync(CancellationToken ct = default)
     {
-        AnsiConsole.WriteLine("[SwarmTasksProcessing] start");
+        if (Verbose) AnsiConsole.WriteLine("[SwarmTasksProcessing] start");
+
         while (!ct.IsCancellationRequested)
         {
             try
@@ -446,11 +475,10 @@ public class Swarm : ISwarm
 
     private async Task NotifyOthersAboutNewNode(Node newNode)
     {
-        foreach (var node in Nodes)
+        foreach (var node in Others)
         {
             try
             {
-                if (node.Id == SelfId) continue;     // don't notify myself
                 if (node.Id == newNode.Id) continue; // don't notify new node itself
 
                 Console.WriteLine($"[NotifyOthersAboutNewNode] notify {node.ConnectUrl} about new node \"{newNode.Id}\"");
@@ -511,24 +539,21 @@ public class Swarm : ISwarm
         bool changed = false;
         var removedNodeIds = new List<string>();
 
-        foreach (var node in Nodes)
+        foreach (var node in Others)
         {
-            if (node.Id == SelfId) continue;
-
             if (node.Ago < NODE_TIMEOUT && !forcePingWithinTtl) continue;
 
             try
             {
-                //Console.WriteLine($"[HouseKeeping] ping node \"{node.Id}\"");
                 var updatedNode = await node.Client.PingAsync();
                 UpsertNode(updatedNode);
             }
             catch (Exception e)
             {
-                Console.WriteLine($"[HouseKeeping] ping node \"{node.Id}\" failed with {e.Message}");
+                Console.WriteLine($"[RefreshNodeListAsync] ping node \"{node.Id}\" failed with {e.Message}");
                 RemoveNode(node.Id);
                 removedNodeIds.Add(node.Id);
-                Console.WriteLine($"[HouseKeeping] removed node \"{node.Id}\"");
+                Console.WriteLine($"[RefreshNodeListAsync] removed node \"{node.Id}\"");
 
                 changed = true;
             }
@@ -536,16 +561,16 @@ public class Swarm : ISwarm
 
         if (removedNodeIds.Count > 0)
         {
-            foreach (var node in Nodes)
+            foreach (var node in Others)
             {
                 try
                 {
-                    Console.WriteLine($"[HouseKeeping] notify {node.ConnectUrl} about removed node(s)");
+                    Console.WriteLine($"[RefreshNodeListAsync] notify {node.ConnectUrl} about removed node(s)");
                     await node.Client.RemoveNodesAsync(removedNodeIds);
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine($"[HouseKeeping] notify {node.ConnectUrl} failed, because of {e.Message}");
+                    Console.WriteLine($"[RefreshNodeListAsync] notify {node.ConnectUrl} failed, because of {e.Message}");
                 }
             }
         }
@@ -553,94 +578,144 @@ public class Swarm : ISwarm
         return changed;
     }
 
+    #endregion
+
+    #region Failover
+
+    private long _failoverCount = 0L;
+    private readonly SemaphoreSlim _failover = new(initialCount: 1);
+
     /// <summary>
     /// Identifies primary node and resynchronizes list of swarm nodes.
     /// </summary>
-    private async Task Failover()
+    private async void FailoverAsync()
     {
-        Console.WriteLine($"[Failover] start");
-        Console.WriteLine($"[Failover] my node id is {SelfId}");
+        // init
+        var id = Interlocked.Increment(ref _failoverCount);
+        void log(string msg) => AnsiConsole.MarkupLine(
+            $"[lime][[FAILOVER]][[{id}]][[{DateTimeOffset.UtcNow}]] {msg.EscapeMarkup()}[/]")
+            ;
 
-        // (1) let's forget our current primary,
-        //     as we will elect a new primary
-        PrimaryId = null;
-
-        // (2) remove all nodes that are not responsive
-        await RefreshNodeListAsync(forcePingWithinTtl: true);
-
-        // (3) who should be the primary?
-        var myNominee = await ChooseNomineeForPrimary();
-        Console.WriteLine($"[Failover] my nominee is {myNominee.Id}");
-        if (myNominee.Id == SelfId)
+        // failover
+        if (!_failover.Wait(0))
         {
-            // I think, I'm the nominee ...
-            Console.WriteLine($"[Failover] I AM THE NOMINEE :-)");
+            log("failover already in progress");
+            throw new Exception("Failover in progress.");
+        }
 
-            // ... let's ask everyone else, what they think
-            Console.WriteLine($"[Failover] ask everyone else for their nominee");
-            var rivalNominees = new List<Node>();
-            foreach (var node in Nodes)
+        try
+        {
+            while (true)
             {
-                if (node.Id == SelfId) continue;
-                try
-                {
-                    var nodesNominee = await node.Client.GetFailoverNomineeAsync();
-                    Console.WriteLine($"[Failover]   {node.Id} nominates {nodesNominee.Id}");
+                log($"=========================================================");
+                log($"starting failover");
+                log($"my node id is {SelfId}");
+                log($"local time is {DateTimeOffset.Now}");
 
-                    if (nodesNominee.Id != myNominee.Id)
+                // (1) let's forget our current primary,
+                //     as we will elect a new primary
+                PrimaryId = null;
+
+                // (2) remove all nodes that are not responsive
+                log($"remove all nodes that are not responsive ...");
+                await RefreshNodeListAsync(forcePingWithinTtl: true);
+
+                // (3) who should be the primary?
+                log($"choose nominee for primary ...");
+                var myNominee = await ChooseNomineeForPrimary();
+                log($"my nominee is {myNominee.Id}");
+                if (myNominee.Id == SelfId)
+                {
+                    // I think, I'm the nominee ...
+                    log($"I AM THE NOMINEE :-)");
+
+                    // ... let's ask everyone else, what they think
+                    log($"ask everyone else for their nominee");
+                    var rivalNominees = new List<Node>();
+                    foreach (var node in Nodes)
                     {
-                        rivalNominees.Add(nodesNominee);
+                        if (node.Id == SelfId) continue;
+                        try
+                        {
+                            var nodesNominee = await node.Client.GetFailoverNomineeAsync();
+                            log($"   {node.Id} nominates {nodesNominee.Id}");
+
+                            if (nodesNominee.Id != myNominee.Id)
+                            {
+                                rivalNominees.Add(nodesNominee);
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            log($"    {node.Id} failed to answer ({e.Message})");
+                        }
+                    }
+
+                    // are there any rival nominees?
+                    if (rivalNominees.Count > 0)
+                    {
+                        // obviously there are nodes we do not know -> update our node list
+                        log($"there are rival nominations -> update node list");
+                        foreach (var rival in rivalNominees) UpsertNode(rival);
+
+                        // ... and give up for now (and retry in a few moments)
+                        log($"give up for now (and retry in a few moments)");
+                        await Task.Delay(1234);
+                        continue;
+                    }
+                    else
+                    {
+                        // if no rivals, then I am the new primary
+                        PrimaryId = SelfId;
+                        log($"no rival nominees -> I WON :-)");
+                        if (Verbose) PrintNice();
+                        return; // new primary: Self
                     }
                 }
-                catch (Exception e)
+                else
                 {
-                    Console.WriteLine($"[Failover]   {node.Id} failed to answer ({e.Message})");
+                    // ask my nominee who he would choose ...
+                    log($"ask my nominee who he would choose");
+                    try
+                    {
+                        var nomineesNominee = await myNominee.Client.GetFailoverNomineeAsync();
+                        log($"nominee's nominee is {nomineesNominee.Id}");
+                        // ... and make this my new primary
+                        log($"make {nomineesNominee.Id} my new primary");
+                        UpsertNode(nomineesNominee);
+                        PrimaryId = nomineesNominee.Id;
+                        if (Verbose) PrintNice();
+                        return; // new primary: nomineesNominee;
+                    }
+                    catch (Exception e)
+                    {
+                        log($"my nominee did not answer ({e.Message})");
+                        log($"give up for now and retry in a few moments");
+                        await Task.Delay(1234);
+                        continue;
+                    }
                 }
-            }
 
-            // are there any rival nominees?
-            if (rivalNominees.Count > 0)
-            {
-                // obviously there are nodes we do not know -> update our node list
-                Console.WriteLine($"[Failover] there are rival nominations -> update node list");
-                foreach (var rival in rivalNominees) UpsertNode(rival);
-
-                // ... and give up for now (we will try again at next housekeeping cycle)
-                Console.WriteLine($"[Failover] give up for now and wait for next housekeeping cycle");
-                return;
-            }
-            else
-            {
-                // if no rivals, then I am the new primary
-                Console.WriteLine($"[Failover] no rival nominees -> I WON :-)");
-                PrimaryId = SelfId;
-                PrintNice();
-                return;
+                throw new Exception(
+                    "Never reached. Final last words. " +
+                    "Error a7f84010-1dd0-4492-94d1-f50b24e327df."
+                    );
             }
         }
-        else
+        catch (Exception e)
         {
-            // ask my nominee who he would choose ...
-            Console.WriteLine($"[Failover] ask my nominee who he would choose");
-            try
-            {
-                var nomineesNominee = await myNominee.Client.GetFailoverNomineeAsync();
-                Console.WriteLine($"[Failover] nominee's nominee is {nomineesNominee.Id}");
-                // ... and make this my new primary
-                Console.WriteLine($"[Failover] make {nomineesNominee.Id} my new primary");
-                UpsertNode(nomineesNominee);
-                PrimaryId = nomineesNominee.Id;
-                PrintNice();
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"[Failover] my nominee did not answer ({e.Message})");
-                Console.WriteLine($"[Failover] give up for now and wait for next housekeeping cycle");
-            }
-            return;
+            log($"oh no, failover failed with {e}");
+        }
+        finally
+        {
+            log($"=========================================================");
+            _failover.Release();
         }
 
-        throw new NotImplementedException();
+        throw new Exception(
+            "Never reached. Final last words. " +
+            "Error a097b58a-9174-4fb1-92c0-d72cc7c817a7."
+            );
     }
 
     /// <summary>
@@ -648,48 +723,30 @@ public class Swarm : ISwarm
     /// </summary>
     private async Task<Node> ChooseNomineeForPrimary()
     {
-        // (1) first let's check who is REALLY still around
-        await RefreshNodeListAsync(forcePingWithinTtl: true);
-
-        // (2) choose node with smallest id as nominee
-        var nominee = Nodes.MinBy(x => x.Id);
-        if (nominee == null)
+        while (true)
         {
-            Console.WriteLine($"[ChooseNomineeForPrimary] there are no nodes, although I am alive - something got completely wrong");
-            Environment.Exit(1);
+            // (1) choose node with smallest id as nominee
+            var nominee = Nodes.MinBy(x => x.Id);
+            if (nominee == null)
+            {
+                Console.WriteLine($"[ChooseNomineeForPrimary] there are no nodes, although I am alive - something got completely wrong");
+                Environment.Exit(1);
+            }
+
+            // (2)
+            try
+            {
+                await nominee.Client.PingAsync();
+                return nominee;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[ChooseNomineeForPrimary] failed to ping my nominee {nominee.Id}.\n{e.Message}");
+                Console.WriteLine($"[ChooseNomineeForPrimary] remove node from my list and get next nominee");
+                RemoveNode(nominee.Id);
+            }
         }
-        return nominee;
     }
-
-    //// [WORKDIR]/files/[NAME]
-    //internal DirectoryInfo GetSwarmFileDir(string name)
-    //    => new(Path.Combine(Workdir, "files", name));
-
-    //internal async Task<SwarmFile?> TryReadSwarmFileAsync(string name)
-    //{
-    //    var file = new FileInfo(Path.Combine(GetSwarmFileDir(name).FullName, "file.json"));
-    //    if (file.Exists)
-    //    {
-    //        var s = await File.ReadAllTextAsync(file.FullName);
-    //        return SwarmUtils.Deserialize<SwarmFile>(s);
-    //    }
-    //    else
-    //    {
-    //        return null;
-    //    }
-    //}
-
-    //internal FileInfo GetSwarmFilePath(SwarmFile swarmfile)
-    //{
-    //    var info = new FileInfo(Path.Combine(GetSwarmFileDir(swarmfile.Name).FullName, swarmfile.FileName));
-    //    return info;
-    //}
-
-    //internal async Task WriteSwarmFileAsync(SwarmFile f)
-    //{
-    //    var file = new FileInfo(Path.Combine(GetSwarmFileDir(f.Name).FullName, "file.json"));
-    //    await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
-    //}
 
     #endregion
 }
