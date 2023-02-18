@@ -29,15 +29,17 @@ Content-Type: application/json
 {
     "type": "RunJobRequest",
     "request": {
-        "prepare": [
-            { "path": ".", "swarmfile": "atti/exe" },
-            { "path": ".", "swarmfile": "atti/kermit" }
-        ],
-        "commands": [
-            "./bin/Release/net6.0/MondoCli.exe --name kermit --build 1337 --localinput ./kermit --localoutput ./out"
-        ],
-        "save": [
-            { "path": "./out", "swarmfile": "atti/run1337" }
-        ]
+        "job": {
+            "setup": [
+                "sm/test/exe",
+                "sm/test/data1"
+            ],
+            "execute": [
+                { "exe": "Sum.exe", "args": "data1.txt" }
+            ],
+            "collect": [
+
+            ]
+        }
     }
 }

@@ -1,6 +1,9 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
+using System.Diagnostics;
 using System.IO.Compression;
+using System.IO.Enumeration;
+using System.Text;
 
 namespace Swarmr.Base.Tasks;
 
@@ -19,7 +22,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.WriteLine($"[RunJobTask] starting job {Id}");
         AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
 
-        // create tmp directory for job execution
+        // (0) create temporary job directory
         var jobDir = new DirectoryInfo(Path.Combine(context.Workdir, "tmp", Id));
 
         if (jobDir.Exists)
@@ -34,21 +37,21 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
         try
         {
-
-            if (Request.InputFileNames != null)
+            // (1) setup (extract swarm files int o job dir)
             {
-                foreach (var ifn in Request.InputFileNames)
+                var setupFileNames = Request.Job.Setup ?? Array.Empty<string>();
+                foreach (var ifn in setupFileNames)
                 {
-                    AnsiConsole.WriteLine($"[RunJobTask][InputFileName] {ifn}");
+                    AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}");
                     var swarmFile = await context.TryReadSwarmFileAsync(ifn);
                     if (swarmFile != null)
                     {
-                        AnsiConsole.WriteLine($"[RunJobTask][InputFileName] {ifn}: {swarmFile.ToJsonString()}");
+                        AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}: {swarmFile.ToJsonString()}");
                         var source = context.GetSwarmFilePath(swarmFile);
 
-                        AnsiConsole.WriteLine($"[RunJobTask][InputFileName] unpacking {swarmFile.Name} ...");
+                        AnsiConsole.WriteLine($"[RunJobTask][Setup] extracting {swarmFile.Name} ...");
                         ZipFile.ExtractToDirectory(source.FullName, jobDir.FullName, overwriteFiles: true);
-                        AnsiConsole.WriteLine($"[RunJobTask][InputFileName] unpacking {swarmFile.Name} ... done");
+                        AnsiConsole.WriteLine($"[RunJobTask][Setup] extracting {swarmFile.Name} ... done");
                     }
                     else
                     {
@@ -60,13 +63,77 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                 }
             }
 
+            // (2) execute command lines
+            {
+                var commandLines = Request.Job.Execute ?? Array.Empty<JobConfig.ExeConfig>();
+                var imax = commandLines.Count;
+                for (var i = 0; i < imax; i++)
+                {
+                    var (exeRelPath, args) = commandLines[i];
+
+                    var exe = new FileInfo(Path.Combine(jobDir.FullName, exeRelPath));
+                    AnsiConsole.WriteLine($"[RunJobTask][Execute][{i+1}/{imax}] {exe.FullName} {args}");
+                    try
+                    {
+                        await Execute(exe, args, jobDir);
+                    }
+                    catch (Exception e)
+                    {
+                        AnsiConsole.WriteLine($"[RunJobTask][Execute][{i + 1}/{imax}] ERROR: {e.Message}");
+                    }
+                }
+            }
+
+            // (3) collect result files
+            {
+                //var z = new ZipArchive(null, ZipArchiveMode.Update);
+                //var e = z.CreateEntry("foo");
+                //var writestream = e.Open();
+
+                var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
+                foreach (var collectPath in collectPaths)
+                {
+
+                }
+            }
+
+
             AnsiConsole.WriteLine($"[RunJobTask] NOT IMPLEMENTED");
         }
         finally
         {
+            // (4) cleanup
             AnsiConsole.WriteLine($"[RunJobTask][CLEANUP] delete {jobDir.FullName} ... ");
             //jobDir.Delete(recursive: true);
             AnsiConsole.WriteLine($"[RunJobTask][CLEANUP] delete {jobDir.FullName} ... done");
         }
+    }
+
+    private static async Task Execute(FileInfo exe, string args, DirectoryInfo dir)
+    {
+        var processStartInfo = new ProcessStartInfo
+        {
+            FileName = exe.FullName,
+            Arguments = args,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true, 
+            WorkingDirectory = dir.FullName
+        };
+
+        var process = new Process
+        {
+            StartInfo = processStartInfo
+        };
+        var newProcessStarted = process.Start();
+        AnsiConsole.WriteLine($"newProcessStarted = {newProcessStarted}");
+
+        using var stdout = process.StandardOutput;
+        using var consoleout = Console.OpenStandardOutput();
+        await stdout.BaseStream.CopyToAsync(consoleout);
+        AnsiConsole.WriteLine($"attached stdout");
+
+        AnsiConsole.WriteLine($"awaiting exit");
+        await process.WaitForExitAsync();
     }
 }

@@ -26,7 +26,7 @@ public record IngestFileResponse(IngestFileTask Task);
 public record SubmitTaskRequest(SwarmTask.Dto Task);
 public record SubmitTaskResponse();
 
-public record RunJobRequest(IReadOnlyList<string>? InputFileNames);
+public record RunJobRequest(JobConfig Job);
 public record RunJobResponse(RunJobTask Task);
 
 public interface ISwarm
@@ -132,11 +132,11 @@ public static class INodeClientExtensions
     }
 
     public static async Task<RunJobResponse> RunJobAsync(this ISwarm client,
-        IReadOnlyList<string>? inputFileNames
+        JobConfig job
         )
     {
         var response = await client.SendAsync<RunJobRequest, RunJobResponse>(new(
-            InputFileNames: inputFileNames
+            Job: job
             ));
         return response;
     }

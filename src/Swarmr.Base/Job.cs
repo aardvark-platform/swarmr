@@ -1,40 +1,22 @@
-﻿using System.Collections.Immutable;
+﻿using static Swarmr.Base.JobConfig;
 
 namespace Swarmr.Base;
 
-public record JobData(
-    string Hash,
-    string FileName,
-    string Runner
-    );
-
 /// <summary>
-/// 
 /// </summary>
-/// <param name="Runner"></param>
-/// <param name="CommandLine"></param>
-/// <param name="ResultPaths">Files and dirs that should be synced back.</param>
-/// <param name="DataId"></param>
-public record Job(
-    SwarmFile Runner,
-    string CommandLine,
-    ImmutableList<JobData> Input,
-    ImmutableList<string> ResultPaths
-    );
-
-
-# region sketchy sketch
-
-public interface IJobAction { }
-public interface IJobActionConfig
+/// <param name="Setup">Swarm files to extract into job dir.</param>
+/// <param name="Execute">Command lines to execute.</param>
+/// <param name="Results">Result files/dirs to save (relative to job dir).</param>
+/// <param name="ResultFile">Swarm file name for saved results.</param>
+public record JobConfig(
+    IReadOnlyList<string>? Setup,
+    IReadOnlyList<ExeConfig>? Execute,
+    IReadOnlyList<string>? Collect,
+    string ResultFile
+    )
 {
-    IJobAction Hydrate(string Workdir);
+    public record ExeConfig(string Exe, string Args);
 }
-
-public record JobAction(
-    string Type,
-    object JobActionConfig
-    );
 
 public static class Jobs
 {
@@ -58,68 +40,66 @@ public static class Jobs
 
     */
 
-    public static void Parse(string src)
-    {
-        var lines = src
-            .Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(StripComments)
-            .Where(line => !string.IsNullOrWhiteSpace(line))
-            .Select(TokenizeLine)
-            .ToArray()
-            ;
+    //public static void Parse(string src)
+    //{
+    //    var lines = src
+    //        .Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+    //        .Select(StripComments)
+    //        .Where(line => !string.IsNullOrWhiteSpace(line))
+    //        .Select(TokenizeLine)
+    //        .ToArray()
+    //        ;
 
-        static string StripComments(string line)
-        {
-            line = line.Trim();
-            var i = line.IndexOf('#');
-            if (i >= 0) line = line[..i];
-            return line;
-        }
+    //    static string StripComments(string line)
+    //    {
+    //        line = line.Trim();
+    //        var i = line.IndexOf('#');
+    //        if (i >= 0) line = line[..i];
+    //        return line;
+    //    }
 
-        static ImmutableList<string> TokenizeLine(string line)
-        {
-            var tokens = ImmutableList<string>.Empty;
-            var token = "";
-            var insideQuotes = false;
-            for (var i = 0; i < line.Length; i++)
-            {
-                var c = line[i];
+    //    static ImmutableList<string> TokenizeLine(string line)
+    //    {
+    //        var tokens = ImmutableList<string>.Empty;
+    //        var token = "";
+    //        var insideQuotes = false;
+    //        for (var i = 0; i < line.Length; i++)
+    //        {
+    //            var c = line[i];
 
-                if (char.IsWhiteSpace(c) && token.Length == 0)
-                {
-                    continue;
-                }
+    //            if (char.IsWhiteSpace(c) && token.Length == 0)
+    //            {
+    //                continue;
+    //            }
 
-                if (c == '\"')
-                {
-                    insideQuotes = !insideQuotes;
-                    continue;
-                }
+    //            if (c == '\"')
+    //            {
+    //                insideQuotes = !insideQuotes;
+    //                continue;
+    //            }
 
-                if (insideQuotes)
-                {
-                    token += c;
-                    continue;
-                }
+    //            if (insideQuotes)
+    //            {
+    //                token += c;
+    //                continue;
+    //            }
 
-                if (char.IsWhiteSpace(c))
-                {
-                    tokens = tokens.Add(token);
-                    token = "";
-                    continue;
-                }
+    //            if (char.IsWhiteSpace(c))
+    //            {
+    //                tokens = tokens.Add(token);
+    //                token = "";
+    //                continue;
+    //            }
 
-                token += c;
-            }
+    //            token += c;
+    //        }
 
-            if (token.Length > 0)
-            {
-                tokens = tokens.Add(token);
-            }
+    //        if (token.Length > 0)
+    //        {
+    //            tokens = tokens.Add(token);
+    //        }
 
-            return tokens;
-        }
-    }
+    //        return tokens;
+    //    }
+    //}
 }
-
-#endregion

@@ -5,6 +5,7 @@ using Swarmr.Base.Api;
 using Swarmr.Base.Tasks;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Security.Cryptography;
 
 namespace swarmr.Commands;
@@ -24,9 +25,11 @@ public class IngestCommand : AsyncCommand<IngestCommand.Settings>
 
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        if (Path.GetExtension(settings.Path).ToLower() != ".zip")
+        var file = new FileInfo(settings.Path);
+
+        if (file.Extension.ToLower() != ".zip")
         {
-            AnsiConsole.WriteLine($"Expected .zip file (instead of \"{settings.Path}\").");
+            AnsiConsole.WriteLine($"Expected .zip file (instead of \"{file.FullName}\").");
             return 1;
         }
 
@@ -40,10 +43,9 @@ public class IngestCommand : AsyncCommand<IngestCommand.Settings>
 
         var name = 
             settings.Name 
-            ?? Path.GetFileNameWithoutExtension(settings.Path).ToLower()
+            ?? Path.GetFileNameWithoutExtension(file.FullName).ToLower()
         ;
 
-        var file = new FileInfo(settings.Path);
         string hash = null!;
        
         await AnsiConsole.Progress()
@@ -58,7 +60,7 @@ public class IngestCommand : AsyncCommand<IngestCommand.Settings>
             });
 
         var result = await swarm.IngestFileAsync(
-            localFilePath: settings.Path,
+            localFilePath: file.FullName,
             localFileHash: hash,
             name: name
             );
