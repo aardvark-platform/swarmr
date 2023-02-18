@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using Spectre.Console;
+using System.Security.Cryptography;
 
 namespace Swarmr.Base;
 
@@ -19,5 +20,63 @@ public record SwarmFile(
         hashstream.Close();
         filestream.Close();
         return hash;
+    }
+}
+
+
+public class LocalSwarmFiles
+{
+    private DirectoryInfo _basedir;
+
+    public LocalSwarmFiles(string basedir)
+    {
+        _basedir = new(basedir);
+        if (!_basedir.Exists) _basedir.Create();
+    }
+
+    private DirectoryInfo GetOrCreateDir(string logicalName)
+    {
+        var dir = new DirectoryInfo(Path.Combine(_basedir.FullName, logicalName));
+        if (!dir.Exists) dir.Create();
+        return dir;
+    }
+
+    private FileInfo GetMetadataFile(string logicalName)
+        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, "file.json"));
+
+    public FileInfo GetContentFile(string logicalName, string fileName)
+        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
+
+    public FileInfo GetContentFile(SwarmFile swarmfile)
+        => new(Path.Combine(GetOrCreateDir(swarmfile.Name).FullName, swarmfile.FileName));
+
+    public async Task<SwarmFile?> TryReadAsync(string name)
+    {
+        var file = GetMetadataFile(name);
+
+        if (file.Exists)
+        {
+            var s = await File.ReadAllTextAsync(file.FullName);
+            return SwarmUtils.Deserialize<SwarmFile>(s);
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    public async Task WriteAsync(SwarmFile f)
+    {
+        var file = GetMetadataFile(f.Name);
+        await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
+
+        // delete old content files (with different name)
+        foreach (var info in file.Directory!.EnumerateFileSystemInfos())
+        {
+            if (info.Name == "file.json") continue;
+            if (info.Name == f.FileName) continue;
+            info.Delete();
+            AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
+        }
     }
 }

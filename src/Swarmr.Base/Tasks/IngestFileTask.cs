@@ -18,38 +18,38 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
     {
         var sw = new Stopwatch();
 
-        var existingSwarmFile = new FileInfo(Request.LocalFilePath);
-        if (!existingSwarmFile.Exists) throw new Exception($"File does not exist (\"{Request.LocalFilePath}\").");
+        var localFile = new FileInfo(Request.LocalFilePath);
+        if (!localFile.Exists) throw new Exception($"File does not exist (\"{Request.LocalFilePath}\").");
 
         // (1) TARGET
-        var targetDir = context.GetSwarmFileDir(Request.Name);
-        var ownSwarmFile = await context.TryReadSwarmFileAsync(Request.Name);
+        var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(name: Request.Name);
         if (ownSwarmFile != null)
         {
             if (ownSwarmFile.Hash == Request.LocalFileHash)
             {
-                AnsiConsole.WriteLine($"[IngestFileTask] skipping {existingSwarmFile.FullName} ... already exists");
+                AnsiConsole.WriteLine($"[IngestFileTask] skipping {localFile.FullName} ... already exists");
                 return;
             }
             else
             {
-                AnsiConsole.WriteLine($"[IngestFileTask][WARNING] replacing {existingSwarmFile.FullName} ... different hash");
+                AnsiConsole.WriteLine($"[IngestFileTask][WARNING] replacing {localFile.FullName} ... different hash");
             }
         }
-        if (!targetDir.Exists) targetDir.Create();
-        var targetFileName = existingSwarmFile.Name;
-        var targetFile = new FileInfo(Path.Combine(targetDir.FullName, targetFileName));
+        var targetFile = context.LocalSwarmFiles.GetContentFile(
+            logicalName: Request.Name,
+            fileName: localFile.Name
+            );
 
         // (2) copy [SOURCE].zip to [TARGETDIR]/[HASH].zip
-        var sourceStream = existingSwarmFile.OpenRead();
+        var sourceStream = localFile.OpenRead();
         var targetStream = targetFile.OpenWrite();
-        AnsiConsole.WriteLine($"[IngestFileTask] ingest {existingSwarmFile.FullName} ...");
+        AnsiConsole.WriteLine($"[IngestFileTask] ingest {localFile.FullName} ...");
         sw.Restart();
         await sourceStream.CopyToAsync(targetStream);
         targetStream.Close();
         sourceStream.Close();
         sw.Stop();
-        AnsiConsole.WriteLine($"[IngestFileTask] ingest {existingSwarmFile.FullName} ... {sw.Elapsed}");
+        AnsiConsole.WriteLine($"[IngestFileTask] ingest {localFile.FullName} ... {sw.Elapsed}");
 
         // (3) write [TARGETDIR]/file.json
         var newSwarmFile = new SwarmFile(
@@ -58,18 +58,9 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
             Hash: Request.LocalFileHash,
             FileName: targetFile.Name
             );
-        await context.WriteSwarmFileAsync(newSwarmFile);
+        await context.LocalSwarmFiles.WriteAsync(newSwarmFile);
 
-        // (4) delete old version(s)
-        foreach (var info in targetDir.EnumerateFileSystemInfos())
-        {
-            if (info.Name == "file.json") continue;
-            if (info.Name == targetFile.Name) continue;
-            info.Delete();
-            AnsiConsole.WriteLine($"[IngestFileTask] deleted {info.FullName}");
-        }
-
-        // (5) update self
+        // (4) update self
         var newSelf = context.Self with
         {
             LastSeen = DateTimeOffset.UtcNow,
@@ -77,7 +68,7 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
         };
         context.UpsertNode(newSelf);
 
-        // (6) report available file
+        // (5) report available file
         if (context.TryGetPrimaryNode(out var primary))
         {
             await primary.Client.UpdateNodeAsync(newSelf);

@@ -17,6 +17,7 @@ public class Swarm : ISwarm
     public string SelfId { get; }
     public string? PrimaryId { get; private set; }
     public string Workdir { get; }
+    public LocalSwarmFiles LocalSwarmFiles { get; }
     public bool Verbose { get; }
 
     public bool IAmPrimary => SelfId != null && SelfId == PrimaryId;
@@ -325,6 +326,8 @@ public class Swarm : ISwarm
             AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
             d.Create();
         }
+
+        LocalSwarmFiles = new(Path.Combine(d.FullName, "files"));
     }
 
     private async void StartHouseKeepingAsync(CancellationToken ct = default)
@@ -658,35 +661,35 @@ public class Swarm : ISwarm
         return nominee;
     }
 
-    // [WORKDIR]/files/[NAME]
-    internal DirectoryInfo GetSwarmFileDir(string name)
-        => new(Path.Combine(Workdir, "files", name));
+    //// [WORKDIR]/files/[NAME]
+    //internal DirectoryInfo GetSwarmFileDir(string name)
+    //    => new(Path.Combine(Workdir, "files", name));
 
-    internal async Task<SwarmFile?> TryReadSwarmFileAsync(string name)
-    {
-        var file = new FileInfo(Path.Combine(GetSwarmFileDir(name).FullName, "file.json"));
-        if (file.Exists)
-        {
-            var s = await File.ReadAllTextAsync(file.FullName);
-            return SwarmUtils.Deserialize<SwarmFile>(s);
-        }
-        else
-        {
-            return null;
-        }
-    }
+    //internal async Task<SwarmFile?> TryReadSwarmFileAsync(string name)
+    //{
+    //    var file = new FileInfo(Path.Combine(GetSwarmFileDir(name).FullName, "file.json"));
+    //    if (file.Exists)
+    //    {
+    //        var s = await File.ReadAllTextAsync(file.FullName);
+    //        return SwarmUtils.Deserialize<SwarmFile>(s);
+    //    }
+    //    else
+    //    {
+    //        return null;
+    //    }
+    //}
 
-    internal FileInfo GetSwarmFilePath(SwarmFile swarmfile)
-    {
-        var info = new FileInfo(Path.Combine(GetSwarmFileDir(swarmfile.Name).FullName, swarmfile.FileName));
-        return info;
-    }
+    //internal FileInfo GetSwarmFilePath(SwarmFile swarmfile)
+    //{
+    //    var info = new FileInfo(Path.Combine(GetSwarmFileDir(swarmfile.Name).FullName, swarmfile.FileName));
+    //    return info;
+    //}
 
-    internal async Task WriteSwarmFileAsync(SwarmFile f)
-    {
-        var file = new FileInfo(Path.Combine(GetSwarmFileDir(f.Name).FullName, "file.json"));
-        await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
-    }
+    //internal async Task WriteSwarmFileAsync(SwarmFile f)
+    //{
+    //    var file = new FileInfo(Path.Combine(GetSwarmFileDir(f.Name).FullName, "file.json"));
+    //    await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
+    //}
 
     #endregion
 }

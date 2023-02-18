@@ -43,11 +43,11 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                 foreach (var ifn in setupFileNames)
                 {
                     AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}");
-                    var swarmFile = await context.TryReadSwarmFileAsync(ifn);
+                    var swarmFile = await context.LocalSwarmFiles.TryReadAsync(name: ifn);
                     if (swarmFile != null)
                     {
                         AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
-                        var source = context.GetSwarmFilePath(swarmFile);
+                        var source = context.LocalSwarmFiles.GetContentFile(swarmFile);
 
                         AnsiConsole.WriteLine($"    extracting {swarmFile.Name} ...");
                         ZipFile.ExtractToDirectory(source.FullName, jobDir.FullName, overwriteFiles: true);
@@ -93,7 +93,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                     Hash: "replace after zip file has been created",
                     FileName: Path.GetFileName(Request.Job.Result) + ".zip"
                     );
-                var archiveFile = context.GetSwarmFilePath(resultSwarmFile);
+                var archiveFile = context.LocalSwarmFiles.GetContentFile(resultSwarmFile);
                 {
                     var dir = archiveFile.Directory ?? throw new Exception(
                         $"Missing dir path in {archiveFile.FullName}. " +
@@ -167,7 +167,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                     resultSwarmFile = resultSwarmFile with { Hash = hash };
                     AnsiConsole.WriteLine($"    compute hash ... {hash}");
 
-                    await context.WriteSwarmFileAsync(resultSwarmFile);
+                    await context.LocalSwarmFiles.WriteAsync(resultSwarmFile);
                     AnsiConsole.MarkupLine($"    created result swarm file [green]{resultSwarmFile.ToJsonString().EscapeMarkup()}[/]");
                 }
             }
