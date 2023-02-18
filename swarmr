@@ -1,5 +1,5 @@
 #!/bin/bash
 
 pushd ./bin/swarmr
-swarmr "$@"
+./swarmr "$@"
 popd
