@@ -38,3 +38,12 @@ switch (args[0])
         }
 }
 
+{
+    var logdir = new DirectoryInfo("logs");
+    logdir.Create();
+    using var logfile = new StreamWriter(File.OpenWrite(Path.Combine(logdir.FullName, "log.txt")));
+    logfile.WriteLine($"created {DateTimeOffset.Now}");
+    logfile.WriteLine($"some log file entry");
+    logfile.WriteLine($"another entry");
+    logfile.WriteLine($"hello world");
+}

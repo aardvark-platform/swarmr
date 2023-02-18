@@ -51,12 +51,9 @@ public class IngestCommand : AsyncCommand<IngestCommand.Settings>
         await AnsiConsole.Progress()
             .StartAsync(async ctx =>
             {
-                var maxLength = Math.Min(file.Length, 128 * 1024 * 1024);
-                var hashTask = ctx.AddTask("[green]computing hash[/]", maxValue: maxLength);
-                var hashstream = new TruncateStream(file.OpenRead(), maxLength: maxLength, n => hashTask.Value = n);
-                var sha256 = await SHA256.Create().ComputeHashAsync(hashstream);
-                hash = Convert.ToHexString(sha256).ToLowerInvariant();
-                hashstream.Close();
+                var hashTask = ctx.AddTask("[green]computing hash[/]", maxValue: 1.0);
+                var s = 1.0 / file.Length;
+                await SwarmFile.ComputeHashAsync(file, n => hashTask.Value = n * s);
             });
 
         var result = await swarm.IngestFileAsync(

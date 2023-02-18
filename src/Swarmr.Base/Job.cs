@@ -11,12 +11,11 @@ namespace Swarmr.Base;
 public record JobConfig(
     IReadOnlyList<string>? Setup,
     IReadOnlyList<ExecuteItem>? Execute,
-    IReadOnlyList<CollectItem>? Collect,
-    string ResultFile
+    IReadOnlyList<string>? Collect,
+    string Result
     )
 {
     public record ExecuteItem(string Exe, string Args);
-    public record CollectItem(string Path, string SwarmFile);
 }
 
 public static class Jobs

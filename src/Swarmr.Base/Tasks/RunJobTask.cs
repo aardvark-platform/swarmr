@@ -1,6 +1,7 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
 using System.Diagnostics;
+using System.IO;
 using System.IO.Compression;
 
 namespace Swarmr.Base.Tasks;
@@ -85,38 +86,96 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
             // (3) collect result files
             {
-                //var z = new ZipArchive(null, ZipArchiveMode.Update);
-                //var e = z.CreateEntry("foo");
-                //var writestream = e.Open();
-
-                var collectPaths = Request.Job.Collect ?? Array.Empty<JobConfig.CollectItem>();
-                var imax = collectPaths.Count;
-                for (var i = 0; i < imax; i++)
+                var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
+                var resultSwarmFile = new SwarmFile(
+                    Name: Request.Job.Result,
+                    Created: DateTimeOffset.UtcNow,
+                    Hash: "replace after zip file has been created",
+                    FileName: Path.GetFileName(Request.Job.Result) + ".zip"
+                    );
+                var archiveFile = context.GetSwarmFilePath(resultSwarmFile);
                 {
-                    var (path, swarmfile) = collectPaths[i];
-                    path = Path.Combine(jobDir.FullName, path);
+                    var dir = archiveFile.Directory ?? throw new Exception(
+                        $"Missing dir path in {archiveFile.FullName}. " +
+                        $"Error 78620e49-cd24-4cc2-be0e-a2f491bf35a9."
+                        );
+                    if (!dir.Exists) dir.Create();
+                }
 
-                    AnsiConsole.WriteLine($"[RunJobTask][Collect][{i + 1}/{imax}] {path} {swarmfile}");
+                var zipStream = archiveFile.Open(FileMode.Create, FileAccess.ReadWrite);
+                var zipArchive = new ZipArchive(zipStream, ZipArchiveMode.Update);
 
-                    if (File.Exists(path))
+                try
+                {
+                    var imax = collectPaths.Count;
+                    for (var i = 0; i < imax; i++)
                     {
-                        AnsiConsole.WriteLine($"    FILE {path}");
+                        var pathRel = collectPaths[i];
+                        var path = Path.Combine(jobDir.FullName, collectPaths[i]);
+
+                        AnsiConsole.WriteLine($"[RunJobTask][Collect][{i + 1}/{imax}] {path}");
+
+                        if (File.Exists(path))
+                        {
+                            var file = new FileInfo(path);
+                            AnsiConsole.WriteLine($"    FILE {file.FullName}"); 
+                            var e = zipArchive.CreateEntry(pathRel);
+                            var target = e.Open();
+                            var source = file.OpenRead();
+                            await source.CopyToAsync(target);
+                            source.Close();
+                            target.Close();
+
+                        }
+                        else if (Directory.Exists(path))
+                        {
+                            var dir = new DirectoryInfo(path);
+                            AnsiConsole.WriteLine($"    DIR  {dir.FullName}");
+
+                            var files = dir.EnumerateFiles("*", new EnumerationOptions()
+                            {
+                                RecurseSubdirectories = true,
+                                MatchType = MatchType.Simple
+                            });
+
+                            var prefixLength = dir.FullName.Length + 1;
+                            foreach (var file in files)
+                            {
+                                var entryName = file.FullName[prefixLength..];
+                                AnsiConsole.MarkupLine($"         [dim]{entryName.EscapeMarkup()}[/]");
+                                var e = zipArchive.CreateEntry(entryName);
+                                var target = e.Open();
+                                var source = file.OpenRead();
+                                await source.CopyToAsync(target);
+                                source.Close();
+                                target.Close();
+                            }
+                        }
+                        else
+                        {
+                            AnsiConsole.MarkupLine($"    [red]ERROR {path.EscapeMarkup()} does not exist[/]");
+                        }
                     }
-                    else if (Directory.Exists(path))
-                    {
-                        AnsiConsole.WriteLine($"    DIR  {path}");
-                    }
-                    else
-                    {
-                        AnsiConsole.MarkupLine($"    [red]ERROR {path.EscapeMarkup()} does not exist[/]");
-                    }
+                }
+                finally
+                {
+                    zipArchive.Dispose();
+                    zipStream.Close();
+
+                    AnsiConsole.WriteLine($"    compute hash ...");
+                    var hash = await SwarmFile.ComputeHashAsync(archiveFile);
+                    resultSwarmFile = resultSwarmFile with { Hash = hash };
+                    AnsiConsole.WriteLine($"    compute hash ... {hash}");
+
+                    await context.WriteSwarmFileAsync(resultSwarmFile);
+                    AnsiConsole.MarkupLine($"    created result swarm file [green]{resultSwarmFile.ToJsonString().EscapeMarkup()}[/]");
                 }
             }
         }
         finally
         {
             // (4) cleanup
-            AnsiConsole.WriteLine($"[RunJobTask][CLEANUP]");
+            AnsiConsole.WriteLine($"[RunJobTask][Cleanup]");
             AnsiConsole.WriteLine($"    DELETE {jobDir.FullName} ... ");
             jobDir.Delete(recursive: true);
             AnsiConsole.WriteLine($"    DELETE {jobDir.FullName} ... done");
