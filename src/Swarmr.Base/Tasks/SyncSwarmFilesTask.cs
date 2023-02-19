@@ -10,15 +10,15 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
 {
     public async Task RunAsync(Swarm context)
     {
+        var changed = false;
+
         foreach (var otherSwarmFile in Other.Files.Values)
         {
             var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(otherSwarmFile.LogicalName);
             if (ownSwarmFile != null && ownSwarmFile.Hash == otherSwarmFile.Hash) continue;
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new swarm file {otherSwarmFile.ToJsonString()}");
-
-            //var dir = context.GetSwarmFileDir(otherSwarmFile.Name);
-            //if (!dir.Exists) dir.Create();
+            changed = true;
 
             var (urlContent, urlMetadata) = Other.GetDownloadLinks(otherSwarmFile);
             using var http = new HttpClient();
@@ -38,6 +38,9 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
             context.UpsertNode(newSelf);
         }
 
-        await context.Primary.Client.UpdateNodeAsync(context.Self);
+        if (changed)
+        {
+            await context.Primary.Client.UpdateNodeAsync(context.Self);
+        }
     }
 }
