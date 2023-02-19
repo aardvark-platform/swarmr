@@ -10,7 +10,7 @@ public record SwarmFile(
     string? Hash
     )
 {
-    public const string METAFILE_NAME = "@swarmfile.json";
+    public const string METAFILE_NAME = "___swarmfile.json";
 
     public static async Task<string> ComputeHashAsync(FileInfo file, Action<long>? progress = null)
     {
