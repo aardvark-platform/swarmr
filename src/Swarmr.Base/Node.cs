@@ -1,4 +1,6 @@
-﻿using System.Collections.Immutable;
+﻿using Swarmr.Base.Api;
+using System.Collections.Immutable;
+using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
@@ -9,7 +11,7 @@ public record Node(
     DateTimeOffset LastSeen,
     string Hostname,
     int Port,
-    ImmutableDictionary<string, SwarmFile> SwarmFiles
+    ImmutableDictionary<string, SwarmFile> Files
     )
 {
     public TimeSpan Ago => DateTimeOffset.UtcNow - LastSeen;
@@ -27,6 +29,16 @@ public record Node(
         };
     }
 
+    public Node Add(SwarmFile x) => this with
+    {
+        Files = Files.Add(x.LogicalName, x)
+    };
+
+    public Node AddRange(IEnumerable<SwarmFile> xs) => this with
+    {
+        Files = Files.AddRange(xs.Select(x => KeyValuePair.Create(x.LogicalName, x)))
+    };
+
     [JsonIgnore]
-    public NodeHttpClient Client => new(ConnectUrl);
+    public ISwarm Client => new NodeHttpClient(ConnectUrl);
 }

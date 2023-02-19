@@ -2,6 +2,7 @@
 using Swarmr.Base.Api;
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Text;
 
 namespace Swarmr.Base.Tasks;
 
@@ -22,17 +23,17 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
 
         // (0) create temporary job directory
-        var jobDir = new DirectoryInfo(Path.Combine(context.Workdir, "tmp", Id));
+        var prefix = $"runs/{Id}";
+        var logicalExeDir = $"{prefix}/exe";
+        var logicalLogDir = $"{prefix}/log";
 
-        if (jobDir.Exists)
-        {
-            AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [yellow]job dir already exists[/] {jobDir}");
-        }
-        else
-        {
-            jobDir.Create();
-            AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created job dir[/] {jobDir}");
-        }
+        var exeDir = context.LocalSwarmFiles.GetOrCreateDir(logicalLogDir);
+        exeDir.Create();
+        AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {exeDir}");
+
+        var logDir = context.LocalSwarmFiles.GetOrCreateDir(logicalExeDir);
+        logDir.Create();
+        AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {logDir}");
 
         try
         {
@@ -49,7 +50,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                         var source = context.LocalSwarmFiles.GetContentFile(swarmFile);
 
                         AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ...");
-                        ZipFile.ExtractToDirectory(source.FullName, jobDir.FullName, overwriteFiles: true);
+                        ZipFile.ExtractToDirectory(source.FullName, exeDir.FullName, overwriteFiles: true);
                         AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ... done");
                     }
                     else
@@ -70,14 +71,14 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                 {
                     var (exeRelPath, args) = commandLines[i];
 
-                    var exe = new FileInfo(Path.Combine(jobDir.FullName, exeRelPath));
+                    var exe = new FileInfo(Path.Combine(exeDir.FullName, exeRelPath));
                     AnsiConsole.WriteLine($"[RunJobTask][Execute][{i+1}/{imax}] {exe.FullName} {args}");
                     try
                     {
                         var stdoutFile = context.LocalSwarmFiles.Create(logicalName: $"log/{Id}/log{i}.txt");
-                        var stdoutStream = context.LocalSwarmFiles.GetContentFile(stdoutFile).OpenWrite();
+                        var stdoutStream = context.LocalSwarmFiles.GetContentFile(stdoutFile).Open(FileMode.Create, FileAccess.Write, FileShare.Read);
 
-                        await Execute(exe, args, jobDir, stdoutStream);
+                        await Execute(exe, args, exeDir, stdoutStream);
 
                         stdoutStream.Close();
                         await context.LocalSwarmFiles.SetHashFromContentFile(stdoutFile);
@@ -116,7 +117,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                     for (var i = 0; i < imax; i++)
                     {
                         var pathRel = collectPaths[i];
-                        var path = Path.Combine(jobDir.FullName, collectPaths[i]);
+                        var path = Path.Combine(exeDir.FullName, collectPaths[i]);
 
                         AnsiConsole.WriteLine($"[RunJobTask][Collect][{i + 1}/{imax}] {path}");
 
@@ -181,9 +182,9 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         {
             // (4) cleanup
             AnsiConsole.WriteLine($"[RunJobTask][Cleanup]");
-            AnsiConsole.WriteLine($"    DELETE {jobDir.FullName} ... ");
-            jobDir.Delete(recursive: true);
-            AnsiConsole.WriteLine($"    DELETE {jobDir.FullName} ... done");
+            AnsiConsole.WriteLine($"    DELETE {exeDir.FullName} ... ");
+            exeDir.Delete(recursive: true);
+            AnsiConsole.WriteLine($"    DELETE {exeDir.FullName} ... done");
         }
     }
 
@@ -195,7 +196,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             Arguments = args,
             CreateNoWindow = true,
             UseShellExecute = false,
-            RedirectStandardOutput = true, 
+            RedirectStandardOutput = true,
             WorkingDirectory = exeWorkingDir.FullName
         };
 
@@ -203,22 +204,39 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         {
             StartInfo = processStartInfo
         };
+
         var newProcessStarted = process.Start();
         AnsiConsole.WriteLine($"newProcessStarted = {newProcessStarted}");
 
         using var stdout = process.StandardOutput;
-        await stdout.BaseStream.CopyToAsync(stdoutTarget);
-        AnsiConsole.WriteLine($"attached stdout");
+        //await stdout.BaseStream.CopyToAsync(stdoutTarget);
+        _ = Task.Run(async () =>
+        {
+            AnsiConsole.WriteLine($"[STDOUT] attaching");
+            while (true)
+            {
+                var line = await stdout.ReadLineAsync();
+                if (line == null)
+                {
+                    AnsiConsole.WriteLine("[STDOUT] EOF");
+                    return;
+                }
+                AnsiConsole.WriteLine($"[STDOUT] {line}");
+                stdoutTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
+                stdoutTarget.Flush();
+            }
+        });
 
         AnsiConsole.WriteLine($"[{DateTimeOffset.UtcNow}] awaiting exit");
+
         await process.WaitForExitAsync();
+
         if (process.ExitCode == 0)
         {
             AnsiConsole.MarkupLine($"[[{DateTimeOffset.UtcNow}]] [green]exit {process.ExitCode}[/]");
         }
         else
         {
-
             AnsiConsole.MarkupLine($"[[{DateTimeOffset.UtcNow}]] [red]exit {process.ExitCode}[/]");
         }
     }

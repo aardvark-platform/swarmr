@@ -14,7 +14,7 @@ public record SwarmFile(
     {
         var maxLength = Math.Min(file.Length, 128 * 1024 * 1024);
         var filestream = file.OpenRead();
-        var hashstream = new TruncateStream(filestream, maxLength: maxLength, progress);
+        var hashstream = new TruncatedStream(filestream, maxLength: maxLength, progress);
         var sha256 = await SHA256.Create().ComputeHashAsync(hashstream);
         var hash = Convert.ToHexString(sha256).ToLowerInvariant();
         hashstream.Close();
@@ -26,7 +26,10 @@ public record SwarmFile(
 
 public class LocalSwarmFiles
 {
+    private const string SWARMFILE_NAME = ".swarmfile.json";
     private DirectoryInfo _basedir;
+
+    public IEnumerable<SwarmFile> Files => List();
 
     public LocalSwarmFiles(string basedir)
     {
@@ -34,7 +37,7 @@ public class LocalSwarmFiles
         if (!_basedir.Exists) _basedir.Create();
     }
 
-    private DirectoryInfo GetOrCreateDir(string logicalName)
+    public DirectoryInfo GetOrCreateDir(string logicalName)
     {
         var dir = new DirectoryInfo(Path.Combine(_basedir.FullName, logicalName));
         if (!dir.Exists) dir.Create();
@@ -59,7 +62,7 @@ public class LocalSwarmFiles
     }
 
     private FileInfo GetMetadataFile(string logicalName)
-        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, "file.json"));
+        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, SWARMFILE_NAME));
 
     public FileInfo GetContentFile(string logicalName, string fileName)
         => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
@@ -90,7 +93,7 @@ public class LocalSwarmFiles
         // delete old content files (with different name)
         foreach (var info in file.Directory!.EnumerateFileSystemInfos())
         {
-            if (info.Name == "file.json") continue;
+            if (info.Name == SWARMFILE_NAME) continue;
             if (info.Name == f.FileName) continue;
             info.Delete();
             AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
@@ -107,5 +110,18 @@ public class LocalSwarmFiles
         var h = await SwarmFile.ComputeHashAsync(GetContentFile(f), progress);
         f = f with { Hash = h };
         await WriteAsync(f);
+    }
+
+    public IEnumerable<SwarmFile> List()
+    {
+        var xs = _basedir
+            .EnumerateFiles(SWARMFILE_NAME, SearchOption.AllDirectories)
+            .ToList();
+
+        var result = xs
+            .Select(f => SwarmUtils.Deserialize<SwarmFile>(File.ReadAllText(f.FullName)))
+            ;
+
+        return result;
     }
 }

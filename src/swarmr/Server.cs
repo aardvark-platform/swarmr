@@ -1,13 +1,16 @@
 ﻿using Microsoft.Extensions.FileProviders;
 using Swarmr.Base;
 using Swarmr.Base.Api;
+using System.Collections.Immutable;
 
 namespace swarmr;
 
 public class Server
 {
-    public static async Task<WebApplication> RunAsync(Swarm swarm, int port)
+    public static async Task<WebApplication> RunAsync(Swarm swarm)
     {
+        var port = swarm.Self.Port;
+
         var args = Environment.GetCommandLineArgs();
         var builder = WebApplication.CreateBuilder(args);
 

@@ -6,11 +6,6 @@ Console.WriteLine($"stdout log");
 Console.WriteLine($"start at {DateTimeOffset.Now}");
 Console.WriteLine($"args: {string.Join(' ', args)}");
 
-var delay = TimeSpan.FromSeconds(7 + Random.Shared.Next(10));
-Console.WriteLine($"[{DateTimeOffset.Now}] simulating work for {delay}");
-await Task.Delay(delay);
-Console.WriteLine($"[{DateTimeOffset.Now}] simulated work done");
-
 switch (args[0])
 {
     case "create":
@@ -20,6 +15,17 @@ switch (args[0])
             {
                 var x = Math.Round(Random.Shared.NextDouble() * 999.999, 3);
                 Console.WriteLine(x);
+            }
+            break;
+        }
+
+    case "work":
+        {
+            var seconds = int.Parse(args[1]);
+            for (var i = 0; i < seconds; i++)
+            {
+                Console.WriteLine($"doing work {DateTimeOffset.Now}");
+                await Task.Delay(1000);
             }
             break;
         }

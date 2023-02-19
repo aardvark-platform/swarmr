@@ -94,3 +94,27 @@ Content-Type: application/json
         }
     }
 }
+
+### sm/test/result1
+POST http://localhost:5777/api HTTP/1.1
+Content-Type: application/json
+
+{
+    "type": "RunJobRequest",
+    "request": {
+        "job": {
+            "setup": [
+                "sm/test/exe",
+                "sm/test/data1"
+            ],
+            "execute": [
+                { "exe": "Sum.exe", "args": "work 10" }
+            ],
+            "collect": [
+                "out.txt",
+                "."
+            ],
+            "result": "sm/test/work120"
+        }
+    }
+}

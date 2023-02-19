@@ -22,23 +22,22 @@ app.Configure(config =>
     config
         .AddCommand<IngestCommand>("ingest")
         .WithDescription("Uploads files into the swarm.")
-        .WithExample(new[] { "ingest", "example.zip" })
+        .WithExample(new[] { "ingest", "C:\\data\\example.zip", "-n", "alice/example" })
         ;
 
     config
-        .AddBranch("data", c =>
+        .AddBranch("files", c =>
         {
             c.SetDescription(
-                "Manages job data."
+                "Manages swarm files."
                 );
 
-            c.AddCommand<JobDataAddCommand>("add")
-                  .WithDescription("Prepares input data for jobs.")
-                  .WithExample(new[] { "data", "add", "\"my test runner\"", "\"./data1.zip\"",  })
+            c.AddCommand<FilesListCommand>("list")
+                  .WithDescription("List swarm files.")
+                  .WithExample(new[] { "files", "list"  })
                   ;
         })
         ;
-
 
     config
         .AddBranch("jobs", c =>

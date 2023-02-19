@@ -10,7 +10,7 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
 {
     public async Task RunAsync(Swarm context)
     {
-        foreach (var otherSwarmFile in Other.SwarmFiles.Values)
+        foreach (var otherSwarmFile in Other.Files.Values)
         {
             var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(otherSwarmFile.LogicalName);
             if (ownSwarmFile != null && ownSwarmFile.Hash == otherSwarmFile.Hash) continue;
@@ -38,7 +38,7 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
             var newSelf = context.Self with
             {
                 LastSeen = DateTimeOffset.UtcNow,
-                SwarmFiles = context.Self.SwarmFiles.SetItem(otherSwarmFile.LogicalName, otherSwarmFile)
+                Files = context.Self.Files.SetItem(otherSwarmFile.LogicalName, otherSwarmFile)
             };
             context.UpsertNode(newSelf);
             if (context.TryGetPrimaryNode(out var primary))

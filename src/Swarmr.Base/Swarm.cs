@@ -1,8 +1,8 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
 using Swarmr.Base.Tasks;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
-using System.Diagnostics.Metrics;
 using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
@@ -115,6 +115,88 @@ public class Swarm : ISwarm
         return swarm;
     }
 
+    public static async Task<Swarm> ConnectAsync(
+        string? customRemoteHost,
+        int? listenPort,
+        string? customWorkDir,
+        bool verbose
+        )
+    {
+        // (0) Arguments.
+        var (remoteHost, remotePort) = SwarmUtils.ParseHost(customRemoteHost);
+        if (string.IsNullOrWhiteSpace(customWorkDir))
+        {
+            var config = await LocalConfig.LoadAsync();
+            if (config.Workdir != null)
+            {
+                customWorkDir = config.Workdir;
+            }
+            else
+            {
+                throw new Exception("No work dir specified. Error 440022ad-bc87-4256-bbd5-c6430f9bd386.");
+            }
+        }
+
+        // (1) Construct the 'remoteUrl', which is
+        // - the URL of a running node, which we will use to join the swarm.
+        // - or null, which will create a new swarm (with ourselve as only node).
+        ProbeResult? probe = null;
+        if (remotePort == null)
+        {
+            // We don't care about a specific port!
+
+            // Let's try to auto-detect a live port.
+            // If no specific host is specified either,
+            // then we try localhost by default.
+            var probeHost = remoteHost ?? "localhost";
+
+            probe = await SwarmUtils.ProbeHostAsync(probeHost);
+            if (probe.TryGetLivePort(out remotePort)) remoteHost = probe.Hostname;
+        }
+
+        var remoteUrl = (remoteHost, remotePort) switch
+        {
+            (null, null) => null,
+            (string host, int port) => $"http://{host}:{port}",
+            _ => throw new Exception($"Error f61e449b-dac9-40b7-b55a-cd7cd235e758.")
+        };
+
+        // (2) Determine the port, which our node will listen on.
+        if (!listenPort.HasValue)
+        {
+            // No specific port has been specified by the user.
+            // Let's choose an available port from the default port range.
+            if (probe?.Hostname != "localhost")
+                probe = await SwarmUtils.ProbeHostAsync("localhost");
+
+            if (!probe.TryGetFreePort(out listenPort))
+            {
+                throw new Exception("No port available.");
+            }
+        }
+
+        // (3) Create our node.
+        var hostname = Environment.MachineName.ToLowerInvariant();
+        var myself = new Node(
+            Id: Guid.NewGuid().ToString(),
+            Created: DateTimeOffset.UtcNow,
+            LastSeen: DateTimeOffset.UtcNow,
+            Hostname: hostname,
+            Port: listenPort.Value,
+            Files: ImmutableDictionary<string, SwarmFile>.Empty
+            );
+
+        // (4) Connect to the swarm.
+        var swarm = await ConnectAsync(
+            url: remoteUrl,
+            self: myself,
+            workdir: customWorkDir,
+            verbose: verbose
+            );
+
+        return swarm;
+    }
+
     public void PrintNice()
     {
         var swarmPanel = new Panel(this.ToJsonString().EscapeMarkup()).Header("Swarm");
@@ -125,19 +207,19 @@ public class Swarm : ISwarm
 
     public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
     {
-        var c = request.Candidate with { LastSeen = DateTimeOffset.UtcNow };
+        var c = request.Node with { LastSeen = DateTimeOffset.UtcNow };
 
         if (IAmPrimary)
         {
             // notify all nodes of newly joined node ...
-            await NotifyOthersAboutNewNode(c);
+            await Others.Except(request.Node).SendEachAsync(n => n.UpdateNodeAsync(request.Node));
             UpsertNode(c);
         }
         else
         {
             if (TryGetPrimaryNode(out var primary))
             {
-                // notify primary node about candidate
+                // notify primary node about joining node
                 await primary.Client.UpdateNodeAsync(c); 
             }
             else
@@ -149,6 +231,32 @@ public class Swarm : ISwarm
 
         if (Verbose) PrintNice();
         return new JoinSwarmResponse(Swarm: Dto.FromSwarm(this));
+    }
+
+    public async Task<LeaveSwarmResponse> LeaveSwarmAsync(LeaveSwarmRequest request)
+    {
+        if (IAmPrimary)
+        {
+            // notify all nodes of newly joined node ...
+            await Others.Except(request.Node).SendEachAsync(n => n.LeaveSwarmAsync(request.Node));
+            RemoveNode(request.Node.Id);
+        }
+        else
+        {
+            if (TryGetPrimaryNode(out var primary))
+            {
+                // notify primary node about candidate
+                await primary.Client.LeaveSwarmAsync(request.Node);
+            }
+            else
+            {
+                Console.WriteLine($"[LeaveSwarmAsync] there is no primary");
+                throw new Exception("There is no primary node.");
+            }
+        }
+
+        if (Verbose) PrintNice();
+        return new();
     }
 
     public Task<HeartbeatResponse> HeartbeatAsync(HeartbeatRequest request)
@@ -177,22 +285,20 @@ public class Swarm : ISwarm
 
     public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
     {
-        var node = request.Node;
-
         if (IAmPrimary)
         {
             // I am the primary node, so it is my duty
             // to inform all others about this new member
-            await NotifyOthersAboutNewNode(node);
+            await Others.Except(request.Node).SendEachAsync(n => n.UpdateNodeAsync(request.Node));
         }
 
-        UpsertNode(node);
+        UpsertNode(request.Node);
         PrintNice();
 
         // sync swarm files
-        if (node.Id != Self.Id)
+        if (request.Node.Id != Self.Id)
         {
-            await _swarmTaskQueue.Enqueue(new SyncSwarmFilesTask(node));
+            await _swarmTaskQueue.Enqueue(new SyncSwarmFilesTask(request.Node));
         }
 
         return new();
@@ -330,11 +436,6 @@ public class Swarm : ISwarm
 
     private Swarm(Node self, string? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
     {
-        foreach (var n in nodes) _nodes.Add(n.Id, n);
-
-        _nodes[self.Id] = self;
-        SelfId = self.Id;
-
         Workdir = Path.GetFullPath(workdir ?? Info.DefaultWorkdir);
         Verbose = verbose;
         PrimaryId = primary;
@@ -345,13 +446,21 @@ public class Swarm : ISwarm
             AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
             d.Create();
         }
-
         LocalSwarmFiles = new(Path.Combine(d.FullName, "files"));
+
+        self = self.AddRange(LocalSwarmFiles.Files);
+
+        foreach (var n in nodes) _nodes.Add(n.Id, n);
+
+        _nodes[self.Id] = self;
+        SelfId = self.Id;
+
+
     }
 
     private async void StartHouseKeepingAsync(CancellationToken ct = default)
     {
-        if (Verbose) AnsiConsole.WriteLine("[HouseKeeping] start");
+        if (Verbose) AnsiConsole.WriteLine("[Info] starting background task: housekeeping");
 
         while (!ct.IsCancellationRequested)
         {
@@ -377,7 +486,7 @@ public class Swarm : ISwarm
                     // I am the PRIMARY node:  let's ping all nodes to check health
                     // if there are unresponsive nodes, then notify everyone to remove them
                     var changed = await RefreshNodeListAsync(forcePingWithinTtl: false);
-                    if (changed) PrintNice();
+                    //if (changed) PrintNice();
                 }
                 else
                 {
@@ -420,7 +529,7 @@ public class Swarm : ISwarm
 
     private async void StartSwarmTasksProcessingAsync(CancellationToken ct = default)
     {
-        if (Verbose) AnsiConsole.WriteLine("[SwarmTasksProcessing] start");
+        if (Verbose) AnsiConsole.WriteLine("[Info] starting background task: swarm tasks processing");
 
         while (!ct.IsCancellationRequested)
         {
@@ -473,20 +582,35 @@ public class Swarm : ISwarm
         lock (_nodes) return _nodes.ContainsKey(id);
     }
 
-    private async Task NotifyOthersAboutNewNode(Node newNode)
+    //private async Task NotifyOthersAboutNewNode(Node newNode)
+    //{
+    //    foreach (var node in Others)
+    //    {
+    //        try
+    //        {
+    //            if (node.Id == newNode.Id) continue; // don't notify new node itself
+
+    //            Console.WriteLine($"[NotifyOthersAboutNewNode] notify {node.ConnectUrl} about new node \"{newNode.Id}\"");
+    //            await node.Client.UpdateNodeAsync(newNode);
+    //        }
+    //        catch (Exception e)
+    //        {
+    //            Console.WriteLine($"[HouseKeeping] notify {node.ConnectUrl} failed because of {e.Message}");
+    //        }
+    //    }
+    //}
+
+    private async Task SendOthers(Func<Node, Task> action)
     {
         foreach (var node in Others)
         {
             try
             {
-                if (node.Id == newNode.Id) continue; // don't notify new node itself
-
-                Console.WriteLine($"[NotifyOthersAboutNewNode] notify {node.ConnectUrl} about new node \"{newNode.Id}\"");
-                await node.Client.UpdateNodeAsync(newNode);
+                await action(node);
             }
             catch (Exception e)
             {
-                Console.WriteLine($"[HouseKeeping] notify {node.ConnectUrl} failed because of {e.Message}");
+                Console.WriteLine($"[SendOthers] action for {node.ConnectUrl} failed because of {e.Message}");
             }
         }
     }
@@ -503,30 +627,36 @@ public class Swarm : ISwarm
         {
             var connectionUrl = g.Key;
 
-            Console.WriteLine($"[WARNING] found nodes with duplicate connection URL");
-            Console.WriteLine($"[WARNING]   duplicate URL is: {connectionUrl}");
-            Console.WriteLine($"[WARNING]   node IDs are: {string.Join(", ", g.Select(x => x.Id))}");
+            if (Verbose)
+            {
+                Console.WriteLine($"[WARNING] found nodes with duplicate connection URL");
+                Console.WriteLine($"[WARNING]   duplicate URL is: {connectionUrl}");
+                Console.WriteLine($"[WARNING]   node IDs are: {string.Join(", ", g.Select(x => x.Id))}");
+            }
 
             // (1) remove the entries with duplicate connection URL
             foreach (var node in g)
             {
                 RemoveNode(node.Id);
-                Console.WriteLine($"[WARNING]   removed node {node.Id}");
+                if (Verbose) Console.WriteLine($"[WARNING]   removed node {node.Id}");
             }
 
             // (2) now connect to the URL and get the correct node info
             try
             {
-                Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info");
+                if (Verbose) Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info");
                 var client = new NodeHttpClient(connectionUrl);
                 var n = await client.PingAsync();
-                Console.WriteLine($"[WARNING]   current node info is {n.ToJsonString()}");
+                if (Verbose) Console.WriteLine($"[WARNING]   current node info is {n.ToJsonString()}");
                 UpsertNode(n);
             }
             catch
             {
-                Console.WriteLine($"[WARNING]   failed to contact {connectionUrl}");
-                Console.WriteLine($"[WARNING]   done");
+                if (Verbose)
+                {
+                    Console.WriteLine($"[WARNING]   failed to contact {connectionUrl}");
+                    Console.WriteLine($"[WARNING]   done");
+                }
             }
         }
     }

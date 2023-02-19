@@ -2,8 +2,11 @@
 
 namespace Swarmr.Base.Api;
 
-public record JoinSwarmRequest(Node Candidate);
+public record JoinSwarmRequest(Node Node);
 public record JoinSwarmResponse(Swarm.Dto Swarm);
+
+public record LeaveSwarmRequest(Node Node);
+public record LeaveSwarmResponse();
 
 public record HeartbeatRequest(string NodeId);
 public record HeartbeatResponse();
@@ -70,10 +73,17 @@ public static class INodeClientExtensions
         bool verbose
         )
     {
-        var r = await client.SendAsync<JoinSwarmRequest, JoinSwarmResponse>(new(Candidate: self));
+        var r = await client.SendAsync<JoinSwarmRequest, JoinSwarmResponse>(new(Node: self));
         return r.Swarm.ToSwarm(self: self, workdir: workdir, verbose: verbose);
     }
-   
+
+    public static async Task LeaveSwarmAsync(this ISwarm client,
+        Node self
+        )
+    {
+        var r = await client.SendAsync<LeaveSwarmRequest, LeaveSwarmResponse>(new(Node: self));
+    }
+
     public static async Task HeartbeatAsync(this ISwarm client,
         Node self
         )

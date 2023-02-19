@@ -64,7 +64,7 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
         var newSelf = context.Self with
         {
             LastSeen = DateTimeOffset.UtcNow,
-            SwarmFiles = context.Self.SwarmFiles.SetItem(newSwarmFile.LogicalName, newSwarmFile)
+            Files = context.Self.Files.SetItem(newSwarmFile.LogicalName, newSwarmFile)
         };
         context.UpsertNode(newSelf);
 

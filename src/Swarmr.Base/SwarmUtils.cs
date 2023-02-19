@@ -1,6 +1,7 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -154,8 +155,13 @@ public static class SwarmUtils
         return new ProbeResult(Hostname: hostname, Ports: ports);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static string ToJsonString(this object self, JsonSerializerOptions? jsonSerializerOptions = null)
         => JsonSerializer.Serialize(self, jsonSerializerOptions ?? JsonOptions);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T Deserialize<T>(object self)
+        => (T)Deserialize(self, typeof(T));
 
     public static object Deserialize(object self, Type type) => self switch
     {
@@ -185,9 +191,6 @@ public static class SwarmUtils
             )
     };
 
-    public static T Deserialize<T>(object self)
-        => (T)Deserialize(self, typeof(T));
-
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         AllowTrailingCommas = true,
@@ -204,51 +207,31 @@ public static class SwarmUtils
     };
 }
 
-public class TruncateStream : Stream
+public static class Extensions
 {
-    private readonly Stream _innerStream;
-    private readonly long _maxLength;
-    private readonly Action<long>? _progress;
-    private long _position;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static IEnumerable<Node> Except(this IEnumerable<Node> xs, Node n)
+        => xs.Where(x => x.Id != n.Id);
 
-    public TruncateStream(Stream innerStream, long maxLength, Action<long>? progress = default)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static IEnumerable<Node> Except(this IEnumerable<Node> xs, string nodeId)
+        => xs.Where(x => x.Id != nodeId);
+
+    public static async Task SendEachAsync(this IEnumerable<Node> xs, Func<ISwarm, Task> action)
     {
-        _innerStream = innerStream ?? throw new ArgumentNullException(nameof(innerStream));
-        _maxLength = maxLength;
-        _progress = progress;
-        _position = 0;
-    }
-
-    public override bool CanRead => _innerStream.CanRead;
-    public override bool CanSeek => _innerStream.CanSeek;
-    public override bool CanWrite => false;
-    public override long Length => Math.Min(_innerStream.Length, _maxLength);
-    public override long Position { get => _position; set => throw new NotSupportedException(); }
-    public override void Flush() => _innerStream.Flush();
-
-    public override int Read(byte[] buffer, int offset, int count)
-    {
-        long remaining = _maxLength - _position;
-        if (remaining <= 0) return 0;
-        int readCount = (int)Math.Min(remaining, count);
-        int bytesRead = _innerStream.Read(buffer, offset, readCount);
-        _position += bytesRead;
-        _progress?.Invoke(_position);
-        return bytesRead;
-    }
-
-    public override long Seek(long offset, SeekOrigin origin)
-    {
-        throw new NotSupportedException();
-    }
-
-    public override void SetLength(long value)
-    {
-        throw new NotSupportedException();
-    }
-
-    public override void Write(byte[] buffer, int offset, int count)
-    {
-        throw new NotSupportedException();
+        foreach (var x in xs)
+        {
+            try
+            {
+                await action(x.Client);
+            }
+            catch (Exception e)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow][[WARNING]] SendEachAsync action failed for node {x.Id}[/].\n" +
+                    $"{e.Message.EscapeMarkup()}"
+                    );
+            }
+        }
     }
 }
