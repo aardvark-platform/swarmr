@@ -106,6 +106,9 @@ public class Swarm : ISwarm
             swarm ??= new Swarm(self, workdir: workdir, verbose: verbose);
         }
 
+        // init/sync local files
+        if (!swarm.IAmPrimary) await swarm.Primary.Client.UpdateNodeAsync(swarm.Self);
+
         // start housekeeping (background)
         swarm.StartHouseKeepingAsync(ct);
 

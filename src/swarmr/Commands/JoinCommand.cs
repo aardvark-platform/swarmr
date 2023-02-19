@@ -62,10 +62,6 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             verbose: settings.Verbose
             );
 
-
-        var updatedSelf = swarm.Self.Upsert(swarm.LocalSwarmFiles.Files);
-        await swarm.Primary.Client.UpdateNodeAsync(updatedSelf);
-
         var app = await Server.RunAsync(swarm: swarm);
         if (app == null) return 1;
 
