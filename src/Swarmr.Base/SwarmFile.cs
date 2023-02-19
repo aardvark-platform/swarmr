@@ -1,4 +1,5 @@
 ﻿using Spectre.Console;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 
 namespace Swarmr.Base;
@@ -45,6 +46,7 @@ public class LocalSwarmFiles
         return dir;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Exists(string logicalName)
         => GetMetadataFile(logicalName).Exists;
 
@@ -62,12 +64,19 @@ public class LocalSwarmFiles
             );
     }
 
-    private FileInfo GetMetadataFile(string logicalName)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public FileInfo GetMetadataFile(string logicalName)
         => new(Path.Combine(GetOrCreateDir(logicalName).FullName, SwarmFile.METAFILE_NAME));
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public FileInfo GetMetadataFile(SwarmFile swarmfile)
+        => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, SwarmFile.METAFILE_NAME));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public FileInfo GetContentFile(string logicalName, string fileName)
         => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public FileInfo GetContentFile(SwarmFile swarmfile)
         => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, swarmfile.FileName));
 

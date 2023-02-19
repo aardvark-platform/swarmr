@@ -1,6 +1,5 @@
 ﻿using Swarmr.Base.Api;
 using System.Collections.Immutable;
-using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
@@ -18,15 +17,13 @@ public record Node(
 
     public string ConnectUrl => $"http://{Hostname}:{Port}";
 
-    public string[] GetDownloadLinks(SwarmFile requestedSwarmFile)
+    public (string urlContent, string urlMetadata) GetDownloadLinks(SwarmFile requestedSwarmFile)
     {
-        var connectUrl = ConnectUrl.EndsWith('/') ? ConnectUrl[..^1] : ConnectUrl;
-        var prefix = $"{connectUrl}/static/files/{requestedSwarmFile.LogicalName}";
-        return new[]
-        {
-            $"{prefix}/{requestedSwarmFile.FileName}",
-            $"{prefix}/{SwarmFile.METAFILE_NAME}"
-        };
+        var prefix = $"{ConnectUrl}/static/files/{requestedSwarmFile.LogicalName}";
+        return (
+            urlContent : $"{prefix}/{requestedSwarmFile.FileName}",
+            urlMetadata: $"{prefix}/{SwarmFile.METAFILE_NAME}"
+        );
     }
 
     public Node Upsert(SwarmFile x) => this with

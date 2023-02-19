@@ -20,31 +20,24 @@ public record SyncSwarmFilesTask(Node Other) : ISwarmTask
             //var dir = context.GetSwarmFileDir(otherSwarmFile.Name);
             //if (!dir.Exists) dir.Create();
 
-            var urls = Other.GetDownloadLinks(otherSwarmFile);
+            var (urlContent, urlMetadata) = Other.GetDownloadLinks(otherSwarmFile);
             using var http = new HttpClient();
-            foreach (var url in urls)
-            {
-                var targetFile = context.LocalSwarmFiles.GetContentFile(otherSwarmFile);
 
-                AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFile.FullName} ...");
-                var sourceStream = await http.GetStreamAsync(url);
-                var targetStream = File.Open(targetFile.FullName, FileMode.Create, FileAccess.Write, FileShare.None);
-                await sourceStream.CopyToAsync(targetStream);
-                targetStream.Close();
-                sourceStream.Close();
-                AnsiConsole.WriteLine($"[UpdateNodeAsync] downloading {url} to {targetFile.FullName} ... completed");
-            }
+            var fileContent = context.LocalSwarmFiles.GetContentFile(otherSwarmFile);
+            var fileMetadata = context.LocalSwarmFiles.GetMetadataFile(otherSwarmFile);
+
+            fileMetadata.Delete();
+            await http.DownloadToFile(urlContent , fileContent);
+            await http.DownloadToFile(urlMetadata, fileMetadata);
 
             var newSelf = context.Self with
             {
                 LastSeen = DateTimeOffset.UtcNow,
                 Files = context.Self.Files.SetItem(otherSwarmFile.LogicalName, otherSwarmFile)
-            };
+            }; 
             context.UpsertNode(newSelf);
-            if (context.TryGetPrimaryNode(out var primary))
-            {
-                await primary.Client.UpdateNodeAsync(newSelf);
-            }
         }
+
+        await context.Primary.Client.UpdateNodeAsync(context.Self);
     }
 }

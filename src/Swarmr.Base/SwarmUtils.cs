@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using static System.Net.WebRequestMethods;
 
 namespace Swarmr.Base;
 
@@ -65,6 +66,17 @@ public enum NodePortStatus
 
 public static class SwarmUtils
 {
+    public static async Task DownloadToFile(this HttpClient http, string url, FileInfo file)
+    {
+        AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ...");
+        var sourceStream = await http.GetStreamAsync(url);
+        var targetStream = System.IO.File.Open(file.FullName, FileMode.Create, FileAccess.Write, FileShare.None);
+        await sourceStream.CopyToAsync(targetStream);
+        targetStream.Close();
+        sourceStream.Close();
+        AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ... completed");
+    }
+
     public static (string? hostname, int? port) ParseHost(string? host)
     {
         if (string.IsNullOrWhiteSpace(host)) return (null, null);
