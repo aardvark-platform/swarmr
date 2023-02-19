@@ -25,18 +25,18 @@ public record Node(
         return new[]
         {
             $"{prefix}/{requestedSwarmFile.FileName}",
-            $"{prefix}/file.json"
+            $"{prefix}/{SwarmFile.METAFILE_NAME}"
         };
     }
 
-    public Node Add(SwarmFile x) => this with
+    public Node Upsert(SwarmFile x) => this with
     {
-        Files = Files.Add(x.LogicalName, x)
+        Files = Files.SetItem(x.LogicalName, x)
     };
 
-    public Node AddRange(IEnumerable<SwarmFile> xs) => this with
+    public Node Upsert(IEnumerable<SwarmFile> xs) => this with
     {
-        Files = Files.AddRange(xs.Select(x => KeyValuePair.Create(x.LogicalName, x)))
+        Files = Files.SetItems(xs.Select(x => KeyValuePair.Create(x.LogicalName, x)))
     };
 
     [JsonIgnore]

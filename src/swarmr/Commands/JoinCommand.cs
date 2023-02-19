@@ -1,6 +1,7 @@
 ﻿using Spectre.Console;
 using Spectre.Console.Cli;
 using Swarmr.Base;
+using Swarmr.Base.Api;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 
@@ -60,6 +61,10 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             customWorkDir: settings.Workdir,
             verbose: settings.Verbose
             );
+
+
+        var updatedSelf = swarm.Self.Upsert(swarm.LocalSwarmFiles.Files);
+        await swarm.Primary.Client.UpdateNodeAsync(updatedSelf);
 
         var app = await Server.RunAsync(swarm: swarm);
         if (app == null) return 1;

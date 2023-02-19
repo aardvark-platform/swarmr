@@ -446,16 +446,14 @@ public class Swarm : ISwarm
             AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
             d.Create();
         }
-        LocalSwarmFiles = new(Path.Combine(d.FullName, "files"));
 
-        self = self.AddRange(LocalSwarmFiles.Files);
+        LocalSwarmFiles = new(Path.Combine(d.FullName, "files"));
+        self = self.Upsert(LocalSwarmFiles.Files);
 
         foreach (var n in nodes) _nodes.Add(n.Id, n);
 
         _nodes[self.Id] = self;
         SelfId = self.Id;
-
-
     }
 
     private async void StartHouseKeepingAsync(CancellationToken ct = default)
@@ -581,24 +579,6 @@ public class Swarm : ISwarm
     {
         lock (_nodes) return _nodes.ContainsKey(id);
     }
-
-    //private async Task NotifyOthersAboutNewNode(Node newNode)
-    //{
-    //    foreach (var node in Others)
-    //    {
-    //        try
-    //        {
-    //            if (node.Id == newNode.Id) continue; // don't notify new node itself
-
-    //            Console.WriteLine($"[NotifyOthersAboutNewNode] notify {node.ConnectUrl} about new node \"{newNode.Id}\"");
-    //            await node.Client.UpdateNodeAsync(newNode);
-    //        }
-    //        catch (Exception e)
-    //        {
-    //            Console.WriteLine($"[HouseKeeping] notify {node.ConnectUrl} failed because of {e.Message}");
-    //        }
-    //    }
-    //}
 
     private async Task SendOthers(Func<Node, Task> action)
     {

@@ -10,6 +10,8 @@ public record SwarmFile(
     string? Hash
     )
 {
+    public const string METAFILE_NAME = ".swarmfile.json";
+
     public static async Task<string> ComputeHashAsync(FileInfo file, Action<long>? progress = null)
     {
         var maxLength = Math.Min(file.Length, 128 * 1024 * 1024);
@@ -26,7 +28,6 @@ public record SwarmFile(
 
 public class LocalSwarmFiles
 {
-    private const string SWARMFILE_NAME = ".swarmfile.json";
     private DirectoryInfo _basedir;
 
     public IEnumerable<SwarmFile> Files => List();
@@ -62,7 +63,7 @@ public class LocalSwarmFiles
     }
 
     private FileInfo GetMetadataFile(string logicalName)
-        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, SWARMFILE_NAME));
+        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, SwarmFile.METAFILE_NAME));
 
     public FileInfo GetContentFile(string logicalName, string fileName)
         => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
@@ -93,7 +94,7 @@ public class LocalSwarmFiles
         // delete old content files (with different name)
         foreach (var info in file.Directory!.EnumerateFileSystemInfos())
         {
-            if (info.Name == SWARMFILE_NAME) continue;
+            if (info.Name == SwarmFile.METAFILE_NAME) continue;
             if (info.Name == f.FileName) continue;
             info.Delete();
             AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
@@ -115,7 +116,7 @@ public class LocalSwarmFiles
     public IEnumerable<SwarmFile> List()
     {
         var xs = _basedir
-            .EnumerateFiles(SWARMFILE_NAME, SearchOption.AllDirectories)
+            .EnumerateFiles(SwarmFile.METAFILE_NAME, SearchOption.AllDirectories)
             .ToList();
 
         var result = xs
