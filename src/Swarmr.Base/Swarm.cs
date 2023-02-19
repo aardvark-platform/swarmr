@@ -3,6 +3,7 @@ using Swarmr.Base.Api;
 using Swarmr.Base.Tasks;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
@@ -238,27 +239,31 @@ public class Swarm : ISwarm
 
     public async Task<LeaveSwarmResponse> LeaveSwarmAsync(LeaveSwarmRequest request)
     {
-        if (IAmPrimary)
+        if (ExistsNode(request.Node))
         {
-            // notify all nodes of newly joined node ...
-            await Others.Except(request.Node).SendEachAsync(n => n.LeaveSwarmAsync(request.Node));
             RemoveNode(request.Node.Id);
-        }
-        else
-        {
-            if (TryGetPrimaryNode(out var primary))
+            if (Verbose) PrintNice();
+
+            if (IAmPrimary)
             {
-                // notify primary node about candidate
-                await primary.Client.LeaveSwarmAsync(request.Node);
+                // notify all nodes of newly joined node ...
+                await Others.Except(request.Node).SendEachAsync(n => n.LeaveSwarmAsync(request.Node));
             }
             else
             {
-                Console.WriteLine($"[LeaveSwarmAsync] there is no primary");
-                throw new Exception("There is no primary node.");
+                if (TryGetPrimaryNode(out var primary))
+                {
+                    // notify primary node about candidate
+                    await primary.Client.LeaveSwarmAsync(request.Node);
+                }
+                else
+                {
+                    Console.WriteLine($"[LeaveSwarmAsync] there is no primary");
+                    throw new Exception("There is no primary node.");
+                }
             }
         }
 
-        if (Verbose) PrintNice();
         return new();
     }
 
@@ -572,16 +577,21 @@ public class Swarm : ISwarm
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void RemoveNode(string id)
     {
         if (SelfId == id) return; // never remove self
         lock (_nodes) { _nodes.Remove(id); }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool ExistsNode(string id)
     {
         lock (_nodes) return _nodes.ContainsKey(id);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool ExistsNode(Node node) => ExistsNode(node.Id);
 
     private async Task SendOthers(Func<Node, Task> action)
     {
