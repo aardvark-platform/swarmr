@@ -26,12 +26,12 @@ public record Node(
         );
     }
 
-    public Node Upsert(SwarmFile x) => this with
+    public Node UpsertFile(SwarmFile x) => this with
     {
         Files = Files.SetItem(x.LogicalName, x)
     };
 
-    public Node Upsert(IEnumerable<SwarmFile> xs) => this with
+    public Node UpsertFiles(IEnumerable<SwarmFile> xs) => this with
     {
         Files = Files.SetItems(xs.Select(x => KeyValuePair.Create(x.LogicalName, x)))
     };

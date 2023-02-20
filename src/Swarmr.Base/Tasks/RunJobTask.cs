@@ -23,21 +23,21 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
 
         // (0) create temporary job directory
-        var prefix = $"runs/{Id}";
-        var logicalExeDir = $"{prefix}/exe";
-        var logicalLogDir = $"{prefix}/log";
+        var prefix = Path.Combine(context.Workdir, "runs", Id);
+        var exeDir = new DirectoryInfo(Path.Combine(prefix, "exe"));
+        var logDir = new DirectoryInfo(Path.Combine(prefix, "logs"));
 
-        var exeDir = context.LocalSwarmFiles.GetOrCreateDir(logicalLogDir);
         exeDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {exeDir}");
 
-        var logDir = context.LocalSwarmFiles.GetOrCreateDir(logicalExeDir);
         logDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {logDir}");
 
+        SwarmFile? resultZipFile = null;
+
         try
         {
-            // (1) setup (extract swarm files int o job dir)
+            // (1) setup (extract swarm files into job dir)
             {
                 var setupFileNames = Request.Job.Setup ?? Array.Empty<string>();
                 foreach (var ifn in setupFileNames)
@@ -64,8 +64,9 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             }
 
             // (2) execute command lines
+            var commandLines = Request.Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
+            var stdoutFiles = new FileInfo[commandLines.Count];
             {
-                var commandLines = Request.Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
                 var imax = commandLines.Count;
                 for (var i = 0; i < imax; i++)
                 {
@@ -75,13 +76,12 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                     AnsiConsole.WriteLine($"[RunJobTask][Execute][{i+1}/{imax}] {exe.FullName} {args}");
                     try
                     {
-                        var stdoutFile = context.LocalSwarmFiles.Create(logicalName: $"log/{Id}/log{i}.txt");
-                        var stdoutStream = context.LocalSwarmFiles.GetContentFile(stdoutFile).Open(FileMode.Create, FileAccess.Write, FileShare.Read);
+                        stdoutFiles[i] = new FileInfo(Path.Combine(logDir.FullName, $"stdout{i}.txt"));
+                        var stdoutStream = stdoutFiles[i].Open(FileMode.Create, FileAccess.Write, FileShare.Read);
 
                         await Execute(exe, args, exeDir, stdoutStream);
 
                         stdoutStream.Close();
-                        await context.LocalSwarmFiles.SetHashFromContentFile(stdoutFile);
                     }
                     catch (Exception e)
                     {
@@ -93,12 +93,11 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             // (3) collect result files
             {
                 var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
-                var resultSwarmFile = new SwarmFile(
-                    Created: DateTimeOffset.UtcNow,
-                    LogicalName: Request.Job.Result,
-                    FileName: Path.GetFileName(Request.Job.Result) + ".zip"
-,
-                    Hash: "replace after zip file has been created");
+
+                var resultSwarmFile = context.LocalSwarmFiles.Create(
+                    logicalName: Request.Job.Result,
+                    fileName: Path.GetFileName(Request.Job.Result) + ".zip"
+                    );
                 var archiveFile = context.LocalSwarmFiles.GetContentFile(resultSwarmFile);
                 {
                     var dir = archiveFile.Directory ?? throw new Exception(
@@ -111,8 +110,25 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                 var zipStream = archiveFile.Open(FileMode.Create, FileAccess.ReadWrite);
                 var zipArchive = new ZipArchive(zipStream, ZipArchiveMode.Update);
 
+                async Task addToZip(FileInfo source, string zipEntryName)
+                {
+                    var e = zipArchive.CreateEntry(zipEntryName);
+                    var toStream = e.Open();
+                    var fromStream = source.OpenRead();
+                    await fromStream.CopyToAsync(toStream);
+                    fromStream.Close();
+                    toStream.Close();
+                }
+
                 try
                 {
+                    // stdout log(s)
+                    foreach (var stdoutFile in stdoutFiles)
+                    {
+                        await addToZip(stdoutFile, $"___job-{Id}/{stdoutFile.Name}");
+                    }
+
+
                     var imax = collectPaths.Count;
                     for (var i = 0; i < imax; i++)
                     {
@@ -124,14 +140,8 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                         if (File.Exists(path))
                         {
                             var file = new FileInfo(path);
-                            AnsiConsole.WriteLine($"    FILE {file.FullName}"); 
-                            var e = zipArchive.CreateEntry(pathRel);
-                            var target = e.Open();
-                            var source = file.OpenRead();
-                            await source.CopyToAsync(target);
-                            source.Close();
-                            target.Close();
-
+                            AnsiConsole.WriteLine($"    FILE {file.FullName}");
+                            await addToZip(file, pathRel);
                         }
                         else if (Directory.Exists(path))
                         {
@@ -149,12 +159,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
                             {
                                 var entryName = file.FullName[prefixLength..];
                                 AnsiConsole.MarkupLine($"         [dim]{entryName.EscapeMarkup()}[/]");
-                                var e = zipArchive.CreateEntry(entryName);
-                                var target = e.Open();
-                                var source = file.OpenRead();
-                                await source.CopyToAsync(target);
-                                source.Close();
-                                target.Close();
+                                await addToZip(file, entryName);
                             }
                         }
                         else
@@ -175,6 +180,8 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
                     await context.LocalSwarmFiles.WriteAsync(resultSwarmFile);
                     AnsiConsole.MarkupLine($"    created result swarm file [green]{resultSwarmFile.ToJsonString().EscapeMarkup()}[/]");
+
+                    resultZipFile = resultSwarmFile;
                 }
             }
         }
@@ -185,6 +192,17 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             AnsiConsole.WriteLine($"    DELETE {exeDir.FullName} ... ");
             exeDir.Delete(recursive: true);
             AnsiConsole.WriteLine($"    DELETE {exeDir.FullName} ... done");
+        }
+
+        if (resultZipFile != null)
+        {
+            AnsiConsole.WriteLine($"[RunJobTask][Result] announce result {resultZipFile.LogicalName} ...");
+            context.UpsertNode(
+                context.Self.UpsertFile(resultZipFile)
+                );
+
+            await context.Primary.Client.UpdateNodeAsync(context.Self);
+            AnsiConsole.WriteLine($"[RunJobTask][Result] announce result {resultZipFile.LogicalName} ... DONE");
         }
     }
 

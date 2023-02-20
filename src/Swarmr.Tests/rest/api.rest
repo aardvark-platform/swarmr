@@ -111,10 +111,9 @@ Content-Type: application/json
                 { "exe": "Sum.exe", "args": "work 10" }
             ],
             "collect": [
-                "out.txt",
                 "."
             ],
-            "result": "sm/test/work120"
+            "result": "sm/test/work10"
         }
     }
 }

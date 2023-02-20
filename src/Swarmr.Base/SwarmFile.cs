@@ -50,8 +50,10 @@ public class LocalSwarmFiles
     public bool Exists(string logicalName)
         => GetMetadataFile(logicalName).Exists;
 
-    public SwarmFile Create(string logicalName)
+    public SwarmFile Create(string logicalName, string? fileName = null)
     {
+        fileName ??= Path.GetFileName(logicalName);
+
         if (Exists(logicalName)) throw new Exception(
             $"SwarmFile \"{logicalName}\" already exists. " +
             $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
@@ -59,7 +61,7 @@ public class LocalSwarmFiles
         return new SwarmFile(
             Created: DateTimeOffset.Now,
             LogicalName: logicalName,
-            FileName: Path.GetFileName(logicalName),
+            FileName: fileName,
             Hash: null!
             );
     }
