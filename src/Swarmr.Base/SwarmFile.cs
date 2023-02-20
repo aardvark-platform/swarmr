@@ -71,14 +71,14 @@ public class LocalSwarmFiles
         {
             if (force)
             {
+                //GetMetadataFile(result).Delete();
+            }
+            else
+            {
                 throw new Exception(
                     $"SwarmFile \"{logicalName}\" already exists. " +
                     $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
                     );
-            }
-            else
-            {
-                GetMetadataFile(result).Delete();
             }
         }
 

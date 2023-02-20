@@ -23,9 +23,9 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
 
         // (0) create temporary job directory
-        var jobDir = Path.Combine(context.Workdir, "runs", Id);
-        var exeDir = new DirectoryInfo(Path.Combine(jobDir, "exe"));
-        var logDir = new DirectoryInfo(Path.Combine(jobDir, "logs"));
+        var jobDir = new DirectoryInfo(Path.Combine(context.Workdir, "runs", Id));
+        var exeDir = new DirectoryInfo(Path.Combine(jobDir.FullName, "exe"));
+        var logDir = new DirectoryInfo(Path.Combine(jobDir.FullName, "logs"));
 
         exeDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {exeDir}");
@@ -188,7 +188,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             // (4) cleanup
             AnsiConsole.WriteLine($"[RunJobTask][Cleanup]");
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... ");
-            exeDir.Delete(recursive: true);
+            jobDir.Delete(recursive: true);
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... done");
         }
 
