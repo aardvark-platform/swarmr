@@ -203,7 +203,14 @@ public class Swarm : ISwarm
 
     public void PrintNice()
     {
-        var swarmPanel = new Panel(this.ToJsonString().EscapeMarkup()).Header("Swarm");
+        var compact = new
+        {
+            SelfId,
+            PrimaryId,
+            IAmPrimary,
+            Nodes = Nodes.Select(n => n with { Files = n.Files.Clear() })
+        };
+        var swarmPanel = new Panel(compact.ToJsonString().EscapeMarkup()).Header("Swarm");
         AnsiConsole.Write(swarmPanel);
     }
 
