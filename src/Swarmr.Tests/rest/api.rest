@@ -108,12 +108,12 @@ Content-Type: application/json
                 "sm/test/data1"
             ],
             "execute": [
-                { "exe": "Sum.exe", "args": "work 10" }
+                { "exe": "Sum.exe", "args": "work 11" }
             ],
             "collect": [
                 "."
             ],
-            "result": "sm/test/work10"
+            "result": "sm/test/work11"
         }
     }
 }

@@ -23,9 +23,9 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
 
         // (0) create temporary job directory
-        var prefix = Path.Combine(context.Workdir, "runs", Id);
-        var exeDir = new DirectoryInfo(Path.Combine(prefix, "exe"));
-        var logDir = new DirectoryInfo(Path.Combine(prefix, "logs"));
+        var jobDir = Path.Combine(context.Workdir, "runs", Id);
+        var exeDir = new DirectoryInfo(Path.Combine(jobDir, "exe"));
+        var logDir = new DirectoryInfo(Path.Combine(jobDir, "logs"));
 
         exeDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {exeDir}");
@@ -33,7 +33,11 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         logDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {logDir}");
 
-        SwarmFile? resultZipFile = null;
+        var resultZipArchive = context.LocalSwarmFiles.Create(
+            logicalName: Request.Job.Result,
+            fileName: Path.GetFileName(Request.Job.Result) + ".zip",
+            force: true
+            );
 
         try
         {
@@ -94,11 +98,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             {
                 var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
 
-                var resultSwarmFile = context.LocalSwarmFiles.Create(
-                    logicalName: Request.Job.Result,
-                    fileName: Path.GetFileName(Request.Job.Result) + ".zip"
-                    );
-                var archiveFile = context.LocalSwarmFiles.GetContentFile(resultSwarmFile);
+                var archiveFile = context.LocalSwarmFiles.GetContentFile(resultZipArchive);
                 {
                     var dir = archiveFile.Directory ?? throw new Exception(
                         $"Missing dir path in {archiveFile.FullName}. " +
@@ -175,13 +175,11 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
                     AnsiConsole.WriteLine($"    compute hash ...");
                     var hash = await SwarmFile.ComputeHashAsync(archiveFile);
-                    resultSwarmFile = resultSwarmFile with { Hash = hash };
+                    resultZipArchive = resultZipArchive with { Hash = hash };
                     AnsiConsole.WriteLine($"    compute hash ... {hash}");
 
-                    await context.LocalSwarmFiles.WriteAsync(resultSwarmFile);
-                    AnsiConsole.MarkupLine($"    created result swarm file [green]{resultSwarmFile.ToJsonString().EscapeMarkup()}[/]");
-
-                    resultZipFile = resultSwarmFile;
+                    await context.LocalSwarmFiles.WriteAsync(resultZipArchive);
+                    AnsiConsole.MarkupLine($"    created result swarm file [green]{resultZipArchive.ToJsonString().EscapeMarkup()}[/]");
                 }
             }
         }
@@ -189,20 +187,20 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         {
             // (4) cleanup
             AnsiConsole.WriteLine($"[RunJobTask][Cleanup]");
-            AnsiConsole.WriteLine($"    DELETE {exeDir.FullName} ... ");
+            AnsiConsole.WriteLine($"    DELETE {jobDir} ... ");
             exeDir.Delete(recursive: true);
-            AnsiConsole.WriteLine($"    DELETE {exeDir.FullName} ... done");
+            AnsiConsole.WriteLine($"    DELETE {jobDir} ... done");
         }
 
-        if (resultZipFile != null)
+        if (resultZipArchive != null)
         {
-            AnsiConsole.WriteLine($"[RunJobTask][Result] announce result {resultZipFile.LogicalName} ...");
+            AnsiConsole.WriteLine($"[RunJobTask][Result] announce result {resultZipArchive.LogicalName} ...");
             context.UpsertNode(
-                context.Self.UpsertFile(resultZipFile)
+                context.Self.UpsertFile(resultZipArchive)
                 );
 
             await context.Primary.Client.UpdateNodeAsync(context.Self);
-            AnsiConsole.WriteLine($"[RunJobTask][Result] announce result {resultZipFile.LogicalName} ... DONE");
+            AnsiConsole.WriteLine($"[RunJobTask][Result] announce result {resultZipArchive.LogicalName} ... DONE");
         }
     }
 

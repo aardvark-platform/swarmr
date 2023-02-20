@@ -20,7 +20,7 @@ public record UpdateNodeResponse();
 public record RemoveNodesRequest(IReadOnlyList<string> NodeIds);
 public record RemoveNodesResponse();
 
-public record GetFailoverNomineeRequest();
+public record GetFailoverNomineeRequest(Node Sender);
 public record GetFailoverNomineeResponse(Node Nominee);
 
 public record IngestFileRequest(string LocalFilePath, string LocalFileHash, string Name);
@@ -112,10 +112,11 @@ public static class INodeClientExtensions
         var _ = await client.SendAsync<RemoveNodesRequest, RemoveNodesResponse>(new(NodeIds: nodeIds));
     }
 
-    public static async Task<Node> GetFailoverNomineeAsync(this ISwarm client
+    public static async Task<Node> GetFailoverNomineeAsync(this ISwarm client,
+        Node sender
         )
     {
-        var response = await client.SendAsync<GetFailoverNomineeRequest, GetFailoverNomineeResponse>(new());
+        var response = await client.SendAsync<GetFailoverNomineeRequest, GetFailoverNomineeResponse>(new(Sender: sender));
         return response.Nominee;
     }
 

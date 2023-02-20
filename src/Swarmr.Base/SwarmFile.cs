@@ -47,23 +47,42 @@ public class LocalSwarmFiles
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public DirectoryInfo GetDir(SwarmFile swarmfile)
+        => new(Path.Combine(_basedir.FullName, swarmfile.LogicalName));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Exists(string logicalName)
         => GetMetadataFile(logicalName).Exists;
 
-    public SwarmFile Create(string logicalName, string? fileName = null)
+    public void Delete(SwarmFile swarmfile)
+        => GetDir(swarmfile).Delete(recursive: true);
+
+    public SwarmFile Create(string logicalName, string? fileName = null, bool force = false)
     {
         fileName ??= Path.GetFileName(logicalName);
-
-        if (Exists(logicalName)) throw new Exception(
-            $"SwarmFile \"{logicalName}\" already exists. " +
-            $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
-            );
-        return new SwarmFile(
+        var result = new SwarmFile(
             Created: DateTimeOffset.Now,
             LogicalName: logicalName,
             FileName: fileName,
             Hash: null!
             );
+
+        if (Exists(logicalName))
+        {
+            if (force)
+            {
+                throw new Exception(
+                    $"SwarmFile \"{logicalName}\" already exists. " +
+                    $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
+                    );
+            }
+            else
+            {
+                GetMetadataFile(result).Delete();
+            }
+        }
+
+        return result;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

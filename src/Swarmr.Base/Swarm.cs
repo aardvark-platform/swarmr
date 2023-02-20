@@ -329,12 +329,15 @@ public class Swarm : ISwarm
     {
         // there seems to be an ongoing failover election
 
-        // (1) let's see if I am the primary
-        if (IAmPrimary)
-        {
-            // mmmh, I am obviously alive - let's nominate myself
-            return new(Nominee: Self);
-        }
+        // (0) update my node list with the sender
+        UpsertNode(request.Sender);
+
+        //// (1) let's see if I am the primary
+        //if (IAmPrimary)
+        //{
+        //    // mmmh, I am obviously alive - let's nominate myself
+        //    return new(Nominee: Self);
+        //}
 
         // (2) choose nominee from my node list
         var nominee = await ChooseNomineeForPrimary();
@@ -760,7 +763,7 @@ public class Swarm : ISwarm
                         if (node.Id == SelfId) continue;
                         try
                         {
-                            var nodesNominee = await node.Client.GetFailoverNomineeAsync();
+                            var nodesNominee = await node.Client.GetFailoverNomineeAsync(Self);
                             log($"   {node.Id} nominates {nodesNominee.Id}");
 
                             if (nodesNominee.Id != myNominee.Id)
@@ -801,7 +804,7 @@ public class Swarm : ISwarm
                     log($"ask my nominee who he would choose");
                     try
                     {
-                        var nomineesNominee = await myNominee.Client.GetFailoverNomineeAsync();
+                        var nomineesNominee = await myNominee.Client.GetFailoverNomineeAsync(Self);
                         log($"nominee's nominee is {nomineesNominee.Id}");
                         // ... and make this my new primary
                         log($"make {nomineesNominee.Id} my new primary");
