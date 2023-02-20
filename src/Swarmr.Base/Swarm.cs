@@ -361,7 +361,15 @@ public class Swarm : ISwarm
     public async Task<SubmitJobResponse> SubmitJobAsync(SubmitJobRequest request)
     {
         var task = RunJobTask.Create(request.Job);
-        await _swarmTaskQueue.Enqueue(task);
+
+        // TODO: schedule (select node to execute task)
+        var node = Self;
+
+        // send task to selected node
+        AnsiConsole.WriteLine($"[SubmitJobAsync] sending task {task.Id} to node {node.Id} ... ");
+        var runJobResponse = await node.Client.RunJobAsync(task);
+        AnsiConsole.WriteLine($"[SubmitJobAsync] sending task {task.Id} to node {node.Id} ... done");
+
         return new(JobId: task.Id);
     }
 
