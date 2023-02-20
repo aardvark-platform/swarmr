@@ -56,6 +56,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
         }
 
         var swarm = await Swarm.ConnectAsync(
+            type: NodeType.Worker,
             customRemoteHost: settings.RemoteHost,
             listenPort: settings.ListenPort,
             customWorkDir: settings.Workdir,

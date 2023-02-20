@@ -22,20 +22,16 @@ public class JobsSubmitCommand : AsyncCommand<JobsSubmitCommand.Settings>
 
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
     {
+        // (1) parse job description file
         var jobConfig = Jobs.Parse(File.ReadAllText(settings.JobConfigFile));
 
-        var swarm = await Swarm.ConnectAsync(
-            customRemoteHost: null,
-            listenPort: null,
-            customWorkDir: null,
-            verbose: settings.Verbose
-            );
-
+        // (2) submit job to primary node
+        var swarm = await SwarmUtils.GetClientSwarm(settings.Verbose);
         var response = await swarm.Primary.Client.SubmitJobAsync(jobConfig);
-        AnsiConsole.WriteLine(response.JobId.ToJsonString());
 
+        // (3) tear down
+        AnsiConsole.WriteLine(response.ToJsonString());
         await swarm.LeaveSwarmAsync(swarm.Self);
-
         return 0;
     }
 }

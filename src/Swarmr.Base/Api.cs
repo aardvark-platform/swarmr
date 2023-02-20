@@ -33,7 +33,7 @@ public record SubmitJobRequest(JobConfig Job);
 public record SubmitJobResponse(string JobId);
 
 public record RunJobRequest(RunJobTask Job);
-public record RunJobResponse();
+public record RunJobResponse(bool Accepted);
 
 public interface ISwarm
 {

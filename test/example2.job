@@ -1,5 +1,5 @@
 SETUP sm/test/exe
-SETUP sm/test/data1
+SETUP sm/test/data2
 
 EXECUTE 
   Sum.exe   # exe
@@ -7,4 +7,4 @@ EXECUTE
 
 COLLECT .
 
-RESULT sm/test/foo/work26
+RESULT sm/test/foo/work25

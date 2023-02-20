@@ -2,6 +2,7 @@
 using Swarmr.Base.Api;
 using Swarmr.Base.Tasks;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
@@ -12,9 +13,10 @@ public class Swarm : ISwarm
 {
     public static readonly TimeSpan HOUSEKEEPING_INTERVAL = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan NODE_TIMEOUT = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan HANDLER_WARN_DURATION = TimeSpan.FromSeconds(0.1);
     public const string DEFAULT_WORKDIR = ".swarmr";
 
-    private readonly SwarmTaskQueue _swarmTaskQueue = new();
+    private readonly SwarmTaskQueue _localTaskQueue = new();
 
     public string SelfId { get; }
     public string? PrimaryId { get; private set; }
@@ -74,6 +76,21 @@ public class Swarm : ISwarm
         lock (_nodes) return _nodes.TryGetValue(primaryId, out primary);
     }
 
+    public void PrintNice()
+    {
+        var compact = new
+        {
+            SelfId,
+            PrimaryId,
+            IAmPrimary,
+            Nodes = Nodes.Select(n => n with { Files = n.Files.Clear() })
+        };
+        var swarmPanel = new Panel(compact.ToJsonString().EscapeMarkup()).Header("Swarm");
+        AnsiConsole.Write(swarmPanel);
+    }
+
+    #region Connect (=construct)
+
     /// <summary>
     /// Constructor.
     /// </summary>
@@ -120,6 +137,7 @@ public class Swarm : ISwarm
     }
 
     public static async Task<Swarm> ConnectAsync(
+        NodeType type,
         string? customRemoteHost,
         int? listenPort,
         string? customWorkDir,
@@ -187,7 +205,9 @@ public class Swarm : ISwarm
             LastSeen: DateTimeOffset.UtcNow,
             Hostname: hostname,
             Port: listenPort.Value,
-            Files: ImmutableDictionary<string, SwarmFile>.Empty
+            Files: ImmutableDictionary<string, SwarmFile>.Empty,
+            Status: NodeStatus.Idle,
+            Type: type
             );
 
         // (4) Connect to the swarm.
@@ -201,37 +221,36 @@ public class Swarm : ISwarm
         return swarm;
     }
 
-    public void PrintNice()
-    {
-        var compact = new
-        {
-            SelfId,
-            PrimaryId,
-            IAmPrimary,
-            Nodes = Nodes.Select(n => n with { Files = n.Files.Clear() })
-        };
-        var swarmPanel = new Panel(compact.ToJsonString().EscapeMarkup()).Header("Swarm");
-        AnsiConsole.Write(swarmPanel);
-    }
+    #endregion
 
     #region ISwarm message handlers (will be auto-detected)
 
+    // message handlers should execute very fast
+    // (if necessary enqueue a swarm task and send asynchronous reply)
+
     public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
     {
-        var c = request.Node with { LastSeen = DateTimeOffset.UtcNow };
-
         if (IAmPrimary)
         {
-            // notify all nodes of newly joined node ...
-            await Others.Except(request.Node).SendEachAsync(n => n.UpdateNodeAsync(request.Node));
-            UpsertNode(c);
+            // accept
+            // (FUTURE: validation, e.g. black/white listing, etc.)
+            UpsertNode(request.Node);
+
+            _ = Task.Run(async () =>
+            {
+                await Others
+                    //.Except(nodeWhoWantsToJoin)
+                    .SendEachAsync(n => n.UpdateNodeAsync(request.Node))
+                    ;
+            });
         }
         else
         {
             if (TryGetPrimaryNode(out var primary))
             {
-                // notify primary node about joining node
-                await primary.Client.UpdateNodeAsync(c); 
+                // forward join request to primary node,
+                // which will notify all others if join request is accepted
+                await primary.Client.UpdateNodeAsync(request.Node);
             }
             else
             {
@@ -240,8 +259,10 @@ public class Swarm : ISwarm
             }
         }
 
-        if (Verbose) PrintNice();
+        if (Verbose) _ = Task.Run(PrintNice);
+
         return new JoinSwarmResponse(Swarm: Dto.FromSwarm(this));
+        //return new JoinSwarmResponse(Swarm: Dto.Empty);
     }
 
     public async Task<LeaveSwarmResponse> LeaveSwarmAsync(LeaveSwarmRequest request)
@@ -300,21 +321,53 @@ public class Swarm : ISwarm
 
     public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
     {
+        // ignore external updates for Self
+        //if (request.Node.Id == SelfId) return new();
+
+        var stopwatch = Stopwatch.StartNew();
+        
+        //void printElapsed(string checkpoint)
+        //{
+        //    stopwatch.Stop();
+        //    var x = stopwatch.Elapsed;
+        //    _ = Task.Run(() => AnsiConsole.WriteLine($"[DEBUG][UpdateNodeAsync][{checkpoint}] elapsed {x}"));
+        //    stopwatch.Start();
+        //}
+
         if (IAmPrimary)
         {
-            // I am the primary node, so it is my duty
-            // to inform all others about this new member
-            await Others.Except(request.Node).SendEachAsync(n => n.UpdateNodeAsync(request.Node));
+            // I am the primary node, so it is my duty to
+            // inform all others about this new member
+            _ = Task.Run(async () =>
+            {
+                await Others.Except(request.Node).SendEachAsync(n => n.UpdateNodeAsync(request.Node));
+            });
+
+            //printElapsed("i am primary");
         }
 
+
         UpsertNode(request.Node);
-        PrintNice();
+
+        //printElapsed("upsert node");
+
+        if (Verbose) _ = Task.Run(PrintNice);
+
+        //printElapsed("print nice");
 
         // sync swarm files
         if (request.Node.Id != Self.Id)
         {
-            await _swarmTaskQueue.Enqueue(new SyncSwarmFilesTask(request.Node));
+            var task = new SyncSwarmFilesTask(
+                Id: Guid.NewGuid().ToString(),
+                Other: request.Node
+                );
+            await _localTaskQueue.Enqueue(task);
+
+            //printElapsed("enqueue SyncSwarmFilesTask");
         }
+
+        //printElapsed("TOTAL");
 
         return new();
     }
@@ -354,29 +407,41 @@ public class Swarm : ISwarm
     public async Task<IngestFileResponse> IngestFileAsync(IngestFileRequest request)
     {
         var t = IngestFileTask.Create(request);
-        await _swarmTaskQueue.Enqueue(t);
+        await _localTaskQueue.Enqueue(t);
         return new(Task: t);
     }
 
+    /// <summary>
+    /// </summary>
     public async Task<SubmitJobResponse> SubmitJobAsync(SubmitJobRequest request)
     {
-        var task = RunJobTask.Create(request.Job);
-
-        // TODO: schedule (select node to execute task)
-        var node = Self;
-
-        // send task to selected node
-        AnsiConsole.WriteLine($"[SubmitJobAsync] sending task {task.Id} to node {node.Id} ... ");
-        var runJobResponse = await node.Client.RunJobAsync(task);
-        AnsiConsole.WriteLine($"[SubmitJobAsync] sending task {task.Id} to node {node.Id} ... done");
-
-        return new(JobId: task.Id);
+        if (IAmPrimary)
+        {
+            var task = ScheduleJobTask.Create(request.Job);
+            await _localTaskQueue.Enqueue(task);
+            return new(JobId: request.Job.Id);
+        }
+        else
+        {
+            throw new Exception(
+                $"Only primary node accepts job submissions " +
+                $"(SelfId={SelfId}, PrimaryId={PrimaryId}. " +
+                $"Error 2a6a3e81-1004-4349-ba3d-bc8419da0350."
+                );
+        }
     }
 
     public async Task<RunJobResponse> RunJobAsync(RunJobRequest request)
     {
-        await _swarmTaskQueue.Enqueue(request.Job);
-        return new();
+        if (Self.Type == NodeType.Worker && Self.Status == NodeStatus.Idle)
+        {
+            await _localTaskQueue.Enqueue(request.Job);
+            return new(Accepted: true);
+        }
+        else
+        {
+            return new(Accepted: false);
+        }
     }
 
     public async Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)
@@ -391,17 +456,19 @@ public class Swarm : ISwarm
     #region ISwarm
 
     private static Dictionary<string, Func<object, Task<SwarmResponse>>> _handlerCache = new();
-    public Task<SwarmResponse> SendAsync(SwarmRequest request)
+    public async Task<SwarmResponse> SendAsync(SwarmRequest request)
     {
+        // (0) AUTO-DETECT handler
+        var requestType =
+            Type.GetType(request.Type)
+            ?? Type.GetType($"Swarmr.Base.Api.{request.Type}")
+            ?? throw new Exception(
+                $"Failed to find type \"{request.Type}\". " +
+                $"Error 51d5d721-e588-4785-acf1-b0dab351119e."
+                );
+
         if (!_handlerCache.TryGetValue(request.Type, out var handler))
         {
-            var requestType =
-                Type.GetType(request.Type)
-                ?? Type.GetType($"Swarmr.Base.Api.{request.Type}")
-                ?? throw new Exception(
-                    $"Failed to find type \"{request.Type}\". " +
-                    $"Error 51d5d721-e588-4785-acf1-b0dab351119e."
-                    );
 
             var methods = typeof(Swarm).GetMethods();
             var method = methods.SingleOrDefault(info =>
@@ -434,7 +501,17 @@ public class Swarm : ISwarm
             if (Verbose) AnsiConsole.MarkupLine($"[fuchsia][[SendAsync]] cached handler for {request.Type}[/]");
         }
 
-        return handler(request.Request);
+        // (1) run handler
+        var stopwatch = Stopwatch.StartNew();
+        var response = await handler(request.Request);
+        stopwatch.Stop();
+
+        if (stopwatch.Elapsed > HANDLER_WARN_DURATION)
+        {
+            AnsiConsole.MarkupLine($"[yellow][[WARNING]]slow handler for {requestType.FullName} ({stopwatch.Elapsed})[/]");
+        }
+
+        return response;
     }
 
     #endregion
@@ -446,6 +523,11 @@ public class Swarm : ISwarm
         IReadOnlyList<Node> Nodes
         )
     {
+        public static readonly Dto Empty = new(
+            Primary: null,
+            ImmutableList<Node>.Empty
+            );
+
         public Swarm ToSwarm(Node self, string workdir, bool verbose) => new(
             self: self,
             workdir: workdir,
@@ -565,7 +647,7 @@ public class Swarm : ISwarm
         {
             try
             {
-                var t = await _swarmTaskQueue.TryDequeue();
+                var t = await _localTaskQueue.TryDequeue();
                 if (t != null)
                 {
                     await t.RunAsync(this);
@@ -591,7 +673,7 @@ public class Swarm : ISwarm
                 if (existing.LastSeen > n.LastSeen)
                 {
                     // we already have a newer state -> ignore update
-                    AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] outdated node state ({n.LastSeen- existing.LastSeen})[/]");
+                    AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] outdated node state, node {n.Id}), {n.LastSeen- existing.LastSeen}[/]");
                     return existing;
                 }
             }

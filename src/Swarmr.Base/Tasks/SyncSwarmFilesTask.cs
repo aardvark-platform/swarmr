@@ -6,7 +6,7 @@ namespace Swarmr.Base.Tasks;
 /// <summary>
 /// Syncs swarm files from specified node with our own swarm files.
 /// </summary>
-public record SyncSwarmFilesTask(Node Other) : ISwarmTask
+public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
 {
     public async Task RunAsync(Swarm context)
     {

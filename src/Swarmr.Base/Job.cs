@@ -5,11 +5,13 @@ namespace Swarmr.Base;
 
 /// <summary>
 /// </summary>
+/// <param name="Id">Job ID.</param>
 /// <param name="Setup">Swarm files to extract into job dir.</param>
 /// <param name="Execute">Command lines to execute.</param>
 /// <param name="Results">Result files/dirs to save (relative to job dir).</param>
 /// <param name="ResultFile">Swarm file name for saved results.</param>
 public record JobConfig(
+    string Id,
     IReadOnlyList<string>? Setup,
     IReadOnlyList<ExecuteItem>? Execute,
     IReadOnlyList<string>? Collect,
@@ -22,7 +24,6 @@ public record JobConfig(
 public static class Jobs
 {
     /*
-    
     SETUP sm/test/exe
     SETUP sm/test/data1
 
@@ -33,8 +34,6 @@ public static class Jobs
     COLLECT .
 
     RESULT sm/test/work13
-
-
     */
 
     public static JobConfig Parse(string src)
@@ -94,6 +93,7 @@ public static class Jobs
         if (result == null) throw new Exception("Result is undefined.");
 
         var job = new JobConfig(
+            Id: $"job-{Guid.NewGuid()}",
             Setup: setup,
             Execute: execute,
             Collect: collect,

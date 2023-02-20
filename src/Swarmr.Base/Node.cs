@@ -4,13 +4,27 @@ using System.Text.Json.Serialization;
 
 namespace Swarmr.Base;
 
+public enum NodeType
+{
+    Worker,
+    Client
+}
+
+public enum NodeStatus
+{
+    Idle,
+    Busy
+}
+
 public record Node(
     string Id,
     DateTimeOffset Created,
     DateTimeOffset LastSeen,
     string Hostname,
     int Port,
-    ImmutableDictionary<string, SwarmFile> Files
+    ImmutableDictionary<string, SwarmFile> Files,
+    NodeType Type,
+    NodeStatus Status
     )
 {
     public TimeSpan Ago => DateTimeOffset.UtcNow - LastSeen;

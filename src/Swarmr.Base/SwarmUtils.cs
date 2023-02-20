@@ -66,6 +66,20 @@ public enum NodePortStatus
 
 public static class SwarmUtils
 {
+    private static Swarm? _clientSwarm = null;
+    public static async Task<Swarm> GetClientSwarm(bool verbose)
+    {
+        _clientSwarm ??= await Swarm.ConnectAsync(
+            type: NodeType.Client,
+            customRemoteHost: null,
+            listenPort: null,
+            customWorkDir: null,
+            verbose: verbose
+            );
+
+        return _clientSwarm;
+    }
+
     public static async Task DownloadToFile(this HttpClient http, string url, FileInfo file)
     {
         AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ...");
@@ -214,7 +228,7 @@ public static class SwarmUtils
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals | JsonNumberHandling.AllowReadingFromString,
         Converters =
         {
-            new JsonStringEnumConverter(),
+            new JsonStringEnumConverter(namingPolicy: JsonNamingPolicy.CamelCase, allowIntegerValues: true),
         },
     };
 }
