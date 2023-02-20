@@ -9,18 +9,18 @@ namespace Swarmr.Base.Tasks;
 /// <summary>
 /// Runs a job.
 /// </summary>
-public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
+public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
 {
-    public static RunJobTask Create(RunJobRequest request) => new(
+    public static RunJobTask Create(JobConfig job) => new(
         Id: Guid.NewGuid().ToString(),
-        Request: request
+        Job: job
         );
 
     public async Task RunAsync(Swarm context)
     {
         AnsiConsole.WriteLine($"[RunJobTask] starting job {Id}");
         AnsiConsole.WriteLine($"[RunJobTask] {DateTimeOffset.Now}");
-        AnsiConsole.WriteLine($"[RunJobTask] {Request.ToJsonString()}");
+        AnsiConsole.WriteLine($"[RunJobTask] {Job.ToJsonString()}");
 
         // (0) create temporary job directory
         var jobDir = new DirectoryInfo(Path.Combine(context.Workdir, "runs", Id));
@@ -34,8 +34,8 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {logDir}");
 
         var resultZipArchive = context.LocalSwarmFiles.Create(
-            logicalName: Request.Job.Result,
-            fileName: Path.GetFileName(Request.Job.Result) + ".zip",
+            logicalName: Job.Result,
+            fileName: Path.GetFileName(Job.Result) + ".zip",
             force: true
             );
 
@@ -43,7 +43,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
         {
             // (1) setup (extract swarm files into job dir)
             {
-                var setupFileNames = Request.Job.Setup ?? Array.Empty<string>();
+                var setupFileNames = Job.Setup ?? Array.Empty<string>();
                 foreach (var ifn in setupFileNames)
                 {
                     AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}");
@@ -68,7 +68,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
             }
 
             // (2) execute command lines
-            var commandLines = Request.Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
+            var commandLines = Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
             var stdoutFiles = new FileInfo[commandLines.Count];
             {
                 var imax = commandLines.Count;
@@ -96,7 +96,7 @@ public record RunJobTask(string Id, RunJobRequest Request) : ISwarmTask
 
             // (3) collect result files
             {
-                var collectPaths = Request.Job.Collect ?? Array.Empty<string>();
+                var collectPaths = Job.Collect ?? Array.Empty<string>();
 
                 var archiveFile = context.LocalSwarmFiles.GetContentFile(resultZipArchive);
                 {

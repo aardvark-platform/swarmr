@@ -29,8 +29,11 @@ public record IngestFileResponse(IngestFileTask Task);
 public record SubmitTaskRequest(SwarmTask.Dto Task);
 public record SubmitTaskResponse();
 
-public record RunJobRequest(JobConfig Job);
-public record RunJobResponse(RunJobTask Task);
+public record SubmitJobRequest(JobConfig Job);
+public record SubmitJobResponse(string JobId);
+
+public record RunJobRequest(RunJobTask Job);
+public record RunJobResponse();
 
 public interface ISwarm
 {
@@ -142,8 +145,18 @@ public static class INodeClientExtensions
         await client.SendAsync<SubmitTaskRequest, SubmitTaskResponse>(new(dto));
     }
 
-    public static async Task<RunJobResponse> RunJobAsync(this ISwarm client,
+    public static async Task<SubmitJobResponse> SubmitJobAsync(this ISwarm client,
         JobConfig job
+        )
+    {
+        var response = await client.SendAsync<SubmitJobRequest, SubmitJobResponse>(new(
+            Job: job
+            ));
+        return response;
+    }
+
+    public static async Task<RunJobResponse> RunJobAsync(this ISwarm client,
+        RunJobTask job
         )
     {
         var response = await client.SendAsync<RunJobRequest, RunJobResponse>(new(

@@ -100,7 +100,7 @@ POST http://localhost:5777/api HTTP/1.1
 Content-Type: application/json
 
 {
-    "type": "RunJobRequest",
+    "type": "SubmitJobRequest",
     "request": {
         "job": {
             "setup": [

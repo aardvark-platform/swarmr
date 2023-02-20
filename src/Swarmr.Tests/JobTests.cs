@@ -12,24 +12,19 @@ public class JobTests
     [Test]
     public void ParseTest1()
     {
-        //var src = """
-        //    RUNNER helloworld
+        var src = """
+            SETUP sm/test/exe
+            SETUP sm/test/data1
 
-        //    HOSTDIR "T:\tmp\swarmr\helloworld"
-        //    DATADIR data
+            EXECUTE 
+              Sum.exe   # exe
+              work 5    # args
 
-        //    # specify data for runner
-        //    # COPY <source> <target>
-        //    # - <source> is file or directory <HOSTDIR>/<source>
-        //    # - <target> is directory <DATADIR>/<target>
-        //    # - where <DATADIR> will be made available at runtime relative to Environment.CurrentDirectory
-        //    COPY input1.txt  .       # ... at path ./[DATADIR]/input1.txt
-        //    COPY input2.txt  .       # ... at path ./[DATADIR]/input2.txt
-        //    COPY "more data" .       # ... at path ./[DATADIR]/input1.txt
+            COLLECT .
 
-        //    RUN helloworld.exe 
-        //    """;
+            RESULT sm/test/work13
+            """;
 
-        //Jobs.Parse(src);
+        var job = Jobs.Parse(src);
     }
 }

@@ -48,14 +48,7 @@ app.Configure(config =>
 
             c.AddCommand<JobsSubmitCommand>("submit")
                   .WithDescription("Submits a new job to the swarm.")
-                  .WithExample(new[] {"jobs", "submit", "./job.json"})
-                  .WithExample(new[] {
-                      "jobs", "submit", 
-                      "-r", "\"runner1\"",
-                      "-c", "\"compute.exe data1.txt data2.txt > result.txt\"",
-                      "-i", "data1.txt", "-i", "data2.txt",
-                      "-o", "result.txt", "-o", "log.txt"
-                  })
+                  .WithExample(new[] {"jobs", "submit", "./compute42.job"})
                   ;
         })
         ;

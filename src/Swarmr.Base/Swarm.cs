@@ -358,11 +358,17 @@ public class Swarm : ISwarm
         return new(Task: t);
     }
 
+    public async Task<SubmitJobResponse> SubmitJobAsync(SubmitJobRequest request)
+    {
+        var task = RunJobTask.Create(request.Job);
+        await _swarmTaskQueue.Enqueue(task);
+        return new(JobId: task.Id);
+    }
+
     public async Task<RunJobResponse> RunJobAsync(RunJobRequest request)
     {
-        var t = RunJobTask.Create(request);
-        await _swarmTaskQueue.Enqueue(t);
-        return new(Task: t);
+        await _swarmTaskQueue.Enqueue(request.Job);
+        return new();
     }
 
     public async Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)

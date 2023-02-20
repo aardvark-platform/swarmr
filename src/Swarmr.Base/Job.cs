@@ -1,4 +1,5 @@
-﻿using static Swarmr.Base.JobConfig;
+﻿using System.Collections.Immutable;
+using static Swarmr.Base.JobConfig;
 
 namespace Swarmr.Base;
 
@@ -22,84 +23,135 @@ public static class Jobs
 {
     /*
     
-    RUNNER helloworld
+    SETUP sm/test/exe
+    SETUP sm/test/data1
 
-    HOSTDIR "T:\tmp\swarmr\helloworld"
-    DATADIR data
+    EXECUTE 
+      Sum.exe   # exe
+      work 5    # args
 
-    # specify data for runner
-    # COPY <source> <target>
-    # - <source> is file or directory <HOSTDIR>/<source>
-    # - <target> is directory <DATADIR>/<target>
-    # - where <DATADIR> will be made available at runtime relative to Environment.CurrentDirectory
-    COPY input1.txt  .       # ... at path ./[DATADIR]/input1.txt
-    COPY input2.txt  .       # ... at path ./[DATADIR]/input2.txt
-    COPY "more data" .       # ... at path ./[DATADIR]/input1.txt
+    COLLECT .
 
-    RUN helloworld.exe 
+    RESULT sm/test/work13
+
 
     */
 
-    //public static void Parse(string src)
-    //{
-    //    var lines = src
-    //        .Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-    //        .Select(StripComments)
-    //        .Where(line => !string.IsNullOrWhiteSpace(line))
-    //        .Select(TokenizeLine)
-    //        .ToArray()
-    //        ;
+    public static JobConfig Parse(string src)
+    {
+        var lines = src
+            .Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(StripComments)
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(TokenizeLine)
+            .ToArray()
+            ;
 
-    //    static string StripComments(string line)
-    //    {
-    //        line = line.Trim();
-    //        var i = line.IndexOf('#');
-    //        if (i >= 0) line = line[..i];
-    //        return line;
-    //    }
+        var setup = ImmutableList<string>.Empty;
+        var execute = ImmutableList<ExecuteItem>.Empty;
+        var collect = ImmutableList<string>.Empty;
+        string? result = null;
 
-    //    static ImmutableList<string> TokenizeLine(string line)
-    //    {
-    //        var tokens = ImmutableList<string>.Empty;
-    //        var token = "";
-    //        var insideQuotes = false;
-    //        for (var i = 0; i < line.Length; i++)
-    //        {
-    //            var c = line[i];
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var (line, tokens) = lines[i];
+            switch (tokens[0].ToLower())
+            {
+                case "setup":
+                    {
+                        if (tokens.Count != 2) throw new Exception();
+                        setup = setup.Add(tokens[1]);
+                        break;
+                    }
 
-    //            if (char.IsWhiteSpace(c) && token.Length == 0)
-    //            {
-    //                continue;
-    //            }
+                case "execute":
+                    {
+                        var x = new ExecuteItem(
+                            Exe: lines[++i].line,
+                            Args: lines[++i].line
+                            );
+                        execute = execute.Add(x);
+                        break;
+                    }
 
-    //            if (c == '\"')
-    //            {
-    //                insideQuotes = !insideQuotes;
-    //                continue;
-    //            }
+                case "collect":
+                    {
+                        if (tokens.Count != 2) throw new Exception();
+                        collect = collect.Add(tokens[1]);
+                        break;
+                    }
 
-    //            if (insideQuotes)
-    //            {
-    //                token += c;
-    //                continue;
-    //            }
+                case "result":
+                    {
+                        if (tokens.Count != 2) throw new Exception();
+                        if (result != null) throw new Exception("Result already defined.");
+                        result = tokens[1];
+                        break;
+                    }
+            }
+        }
 
-    //            if (char.IsWhiteSpace(c))
-    //            {
-    //                tokens = tokens.Add(token);
-    //                token = "";
-    //                continue;
-    //            }
+        if (result == null) throw new Exception("Result is undefined.");
 
-    //            token += c;
-    //        }
+        var job = new JobConfig(
+            Setup: setup,
+            Execute: execute,
+            Collect: collect,
+            Result: result
+            );
 
-    //        if (token.Length > 0)
-    //        {
-    //            tokens = tokens.Add(token);
-    //        }
+        return job;
 
-    //        return tokens;
-    //    }
-    //}
+        static string StripComments(string line)
+        {
+            line = line.Trim();
+            var i = line.IndexOf('#');
+            if (i >= 0) line = line[..i];
+            return line;
+        }
+
+        static (string line, ImmutableList<string> tokens) TokenizeLine(string line)
+        {
+            var tokens = ImmutableList<string>.Empty;
+            var token = "";
+            var insideQuotes = false;
+            for (var i = 0; i < line.Length; i++)
+            {
+                var c = line[i];
+
+                if (char.IsWhiteSpace(c) && token.Length == 0)
+                {
+                    continue;
+                }
+
+                if (c == '\"')
+                {
+                    insideQuotes = !insideQuotes;
+                    continue;
+                }
+
+                if (insideQuotes)
+                {
+                    token += c;
+                    continue;
+                }
+
+                if (char.IsWhiteSpace(c))
+                {
+                    tokens = tokens.Add(token);
+                    token = "";
+                    continue;
+                }
+
+                token += c;
+            }
+
+            if (token.Length > 0)
+            {
+                tokens = tokens.Add(token);
+            }
+
+            return (line, tokens);
+        }
+    }
 }
