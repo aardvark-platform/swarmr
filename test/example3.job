@@ -9,16 +9,3 @@ COLLECT .
 
 RESULT sm/test/foo/work103
 
-
-
-SETUP atti/test1/exe
-SETUP atti/test1/data1
-
-EXECUTE 
-  mondo.exe   # exe
-  --irgend-welche-parameter    # args
-
-COLLECT result.txt
-COLLECT logs/
-
-RESULT atti/test1/result1

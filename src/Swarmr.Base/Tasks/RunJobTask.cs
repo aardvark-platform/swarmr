@@ -67,6 +67,8 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             fileName: Path.GetFileName(Job.Result) + ".zip"
             );
 
+        await using var resultZipLock = await context.LocalSwarmFiles.GetLockAsync(resultZip);
+
         try
         {
             // (1) setup (extract swarm files into job dir)
