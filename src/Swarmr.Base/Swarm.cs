@@ -79,7 +79,7 @@ public class Swarm : ISwarm
     public void PrintNice()
     {
         var table = new Table()
-            .AddColumns(" ", "Id", "Hostname", "Port", "Status", "LastSeen")
+            .AddColumns("Swarm", "Id", "Hostname", "Port", "Status", "LastSeen")
             ;
         foreach (var n in Nodes.OrderBy(x => x.Id))
         {
@@ -151,7 +151,7 @@ public class Swarm : ISwarm
         {
             // clone the swarm from the node at given URL
             if (verbose) AnsiConsole.WriteLine($"connecting to {url} ...");
-            var swarmNode = new NodeHttpClient(url);
+            var swarmNode = new NodeHttpClient(url, self);
             swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir, verbose: verbose);
             if (verbose) AnsiConsole.WriteLine($"connecting to {url} ... done");
         }
@@ -351,6 +351,7 @@ public class Swarm : ISwarm
 
     public Task<PingResponse> PingAsync(PingRequest request)
     {
+        if (request.Sender != null) UpsertNode(request.Sender);
         var newSelf = UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
         var response = new PingResponse(Node: newSelf);
         return Task.FromResult(response);
@@ -492,7 +493,7 @@ public class Swarm : ISwarm
 
     #region ISwarm
 
-    private static Dictionary<string, Func<object, Task<SwarmResponse>>> _handlerCache = new();
+    private static readonly Dictionary<string, Func<object, Task<SwarmResponse>>> _handlerCache = new();
     public async Task<SwarmResponse> SendAsync(SwarmRequest request)
     {
         // (0) AUTO-DETECT handler
@@ -635,7 +636,7 @@ public class Swarm : ISwarm
                     // I am the PRIMARY node:  let's ping all nodes to check health
                     // if there are unresponsive nodes, then notify everyone to remove them
                     var changed = await RefreshNodeListAsync(forcePingWithinTtl: false);
-                    if (changed) _ = Task.Run(PrintNice);
+                    if (changed) _ = Task.Run(PrintNice, ct);
                 }
                 else
                 {
@@ -784,7 +785,7 @@ public class Swarm : ISwarm
             try
             {
                 if (Verbose) Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info ... ");
-                var client = new NodeHttpClient(connectionUrl);
+                var client = new NodeHttpClient(connectionUrl, self: Self);
                 var n = await client.PingAsync();
                 if (Verbose) Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info ... DONE");
                 //if (Verbose) Console.WriteLine($"[WARNING]   current node info is {n.ToJsonString()}");

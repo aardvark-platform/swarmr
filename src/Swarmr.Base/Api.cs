@@ -11,7 +11,7 @@ public record LeaveSwarmResponse();
 public record HeartbeatRequest(string NodeId);
 public record HeartbeatResponse();
 
-public record PingRequest();
+public record PingRequest(Node? Sender);
 public record PingResponse(Node Node);
 
 public record UpdateNodeRequest(Node Node);
@@ -37,6 +37,7 @@ public record RunJobResponse(bool Accepted);
 
 public interface ISwarm
 {
+    Node? Self { get; }
     Task<SwarmResponse> SendAsync(SwarmRequest request);
 }
 
@@ -97,7 +98,7 @@ public static class INodeClientExtensions
     public static async Task<Node> PingAsync(this ISwarm client
         )
     {
-        var response = await client.SendAsync<PingRequest, PingResponse>(new());
+        var response = await client.SendAsync<PingRequest, PingResponse>(new(client.Self));
         return response.Node;
     }
 

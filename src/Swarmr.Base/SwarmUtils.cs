@@ -151,13 +151,13 @@ public static class SwarmUtils
         return (hostname, port);
     }
 
-    public static async Task<ISwarm?> TryGetLocalNodeAsync()
+    public static async Task<ISwarm?> TryGetLocalNodeAsync(Node? self)
     {
         var host = "localhost";
         var probe = await ProbeHostAsync(host);
         if (!probe.TryGetLivePort(out var port)) return null;
         var url = $"http://{host}:{port}";
-        return new NodeHttpClient(url);
+        return new NodeHttpClient(url, self);
     }
 
     public static async Task<ProbeResult> ProbeHostAsync(string hostname)

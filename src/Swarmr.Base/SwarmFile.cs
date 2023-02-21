@@ -29,7 +29,7 @@ public record SwarmFile(
 
 public class LocalSwarmFiles
 {
-    private DirectoryInfo _basedir;
+    private readonly DirectoryInfo _basedir;
 
     public IEnumerable<SwarmFile> Files => List();
 

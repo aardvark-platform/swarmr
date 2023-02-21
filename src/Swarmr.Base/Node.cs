@@ -51,5 +51,5 @@ public record Node(
     };
 
     [JsonIgnore]
-    public ISwarm Client => new NodeHttpClient(ConnectUrl);
+    public ISwarm Client => new NodeHttpClient(ConnectUrl, self: this);
 }

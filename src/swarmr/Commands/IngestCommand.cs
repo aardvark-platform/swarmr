@@ -33,7 +33,7 @@ public class IngestCommand : AsyncCommand<IngestCommand.Settings>
             return 1;
         }
 
-        var swarm = await SwarmUtils.TryGetLocalNodeAsync();
+        var swarm = await SwarmUtils.TryGetLocalNodeAsync(self: null);
         if (swarm == null)
         {
             AnsiConsole.WriteLine("Error. Failed to connect to local swarm node.");

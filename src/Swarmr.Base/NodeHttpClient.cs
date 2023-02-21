@@ -5,21 +5,23 @@ namespace Swarmr.Base;
 
 public class NodeHttpClient : ISwarm
 {
+    private readonly Node? _self;
     private readonly HttpClient _http;
 
-    public NodeHttpClient(string url)
+    public NodeHttpClient(string url, Node? self)
     {
         if (url == null) throw new ArgumentNullException(
             paramName: nameof(url),
             message: "Error f8332b8b-d75f-4b14-b2db-4af8691e8477."
             );
 
+        _self = self;
         _http = new HttpClient() { BaseAddress = new Uri(url), Timeout = Swarm.NODE_TIMEOUT } ;
     }
 
-    public NodeHttpClient(string host, int port) 
-        : this($"http://{host}:{port}")
-    { }
+    //public NodeHttpClient(string host, int port) 
+    //    : this($"http://{host}:{port}")
+    //{ }
 
     #region ISwarm
 
@@ -29,6 +31,8 @@ public class NodeHttpClient : ISwarm
         var r = await httpResponse.Content.ReadFromJsonAsync<SwarmResponse>() ?? throw new Exception();
         return r;
     }
+
+    public Node? Self => _self;
 
     #endregion
 }
