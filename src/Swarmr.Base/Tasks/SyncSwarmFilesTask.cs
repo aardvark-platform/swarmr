@@ -48,13 +48,13 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
             {
                 LastSeen = DateTimeOffset.UtcNow,
                 Files = context.Self.Files.SetItem(otherSwarmFile.LogicalName, otherSwarmFile)
-            }; 
+            };
             context.UpsertNode(newSelf);
         }
 
-        if (changed)
-        {
-            await context.Primary.Client.UpdateNodeAsync(context.Self);
-        }
+        //if (changed)
+        //{
+        //    await context.Primary.Client.UpdateNodeAsync(context.Self);
+        //}
     }
 }

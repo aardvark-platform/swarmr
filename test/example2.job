@@ -3,7 +3,7 @@ SETUP sm/test/data2
 
 EXECUTE 
   Sum.exe   # exe
-  work 5    # args
+  work 25    # args
 
 COLLECT .
 
