@@ -16,7 +16,10 @@ public record ScheduleJobTask(string Id, JobConfig Job) : ISwarmTask
         var runJobTask = RunJobTask.Create(Job);
 
         // get idle nodes
-        var idleNodes = context.Nodes.Where(n => n.Status == NodeStatus.Idle).ToList();
+        var idleNodes = context.Nodes
+            .Where(n => n.Status == NodeStatus.Idle && n.Type == NodeType.Worker)
+            .ToList()
+            ;
 
         // if possible, do not schedule to priary node ...
         if (idleNodes.Count > 1 && context.PrimaryId != null)
