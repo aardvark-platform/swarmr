@@ -708,7 +708,7 @@ public class Swarm : ISwarm
         {
             if (_nodes.TryGetValue(n.Id, out var existing))
             {
-                if (existing.LastSeen > n.LastSeen)
+                if (existing.LastSeen > n.LastSeen && n.Id != SelfId)
                 {
                     // we already have a newer state -> ignore update
                     AnsiConsole.MarkupLine($"[yellow][[UpsertNode]][[WARNING]] outdated node state, node {n.Id}), {n.LastSeen- existing.LastSeen}[/]");
