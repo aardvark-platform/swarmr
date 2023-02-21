@@ -66,10 +66,10 @@ public enum NodePortStatus
 public static class SwarmUtils
 {
     private static Swarm? _clientSwarm = null;
-    public static async Task<Swarm> GetClientSwarm(bool verbose)
+    public static async Task<Swarm> GetEphemeralSwarm(bool verbose)
     {
         _clientSwarm ??= await Swarm.ConnectAsync(
-            type: NodeType.Client,
+            type: NodeType.Ephemeral,
             customRemoteHost: null,
             listenPort: null,
             customWorkDir: null,

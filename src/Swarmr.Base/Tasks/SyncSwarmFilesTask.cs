@@ -10,6 +10,8 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
 {
     public async Task RunAsync(Swarm context)
     {
+        if (Other.Type == NodeType.Ephemeral) return;
+
         var changed = false;
 
         foreach (var otherSwarmFile in Other.Files.Values)

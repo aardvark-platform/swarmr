@@ -93,7 +93,7 @@ public class FilesListCommand : AsyncCommand<FilesListCommand.Settings>
 
     public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var swarm = await SwarmUtils.GetClientSwarm(settings.Verbose);
+        var swarm = await SwarmUtils.GetEphemeralSwarm(settings.Verbose);
 
         var allFiles = swarm.LocalSwarmFiles.List().OrderBy(x => x.LogicalName);
 

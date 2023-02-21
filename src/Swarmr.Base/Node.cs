@@ -7,7 +7,8 @@ namespace Swarmr.Base;
 public enum NodeType
 {
     Worker,
-    Client
+    Client,
+    Ephemeral
 }
 
 public enum NodeStatus

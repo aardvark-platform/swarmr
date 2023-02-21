@@ -26,7 +26,7 @@ public class JobsSubmitCommand : AsyncCommand<JobsSubmitCommand.Settings>
         var jobConfig = Jobs.Parse(File.ReadAllText(settings.JobConfigFile));
 
         // (2) submit job to primary node
-        var swarm = await SwarmUtils.GetClientSwarm(settings.Verbose);
+        var swarm = await SwarmUtils.GetEphemeralSwarm(settings.Verbose);
         var response = await swarm.Primary.Client.SubmitJobAsync(jobConfig);
 
         // (3) tear down
