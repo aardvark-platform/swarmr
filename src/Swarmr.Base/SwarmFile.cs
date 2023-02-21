@@ -1,5 +1,4 @@
 ﻿using Spectre.Console;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 
@@ -27,6 +26,17 @@ public record SwarmFile(
     }
 }
 
+public static class SwarmFileExtensions
+{
+    public static (string urlContent, string urlMetadata) GetDownloadLinks(this SwarmFile self, Node fromNode)
+    {
+        var prefix = $"{fromNode.ConnectUrl}/static/files/{self.LogicalName}";
+        return (
+            urlContent: $"{prefix}/{self.FileName}",
+            urlMetadata: $"{prefix}/{SwarmFile.METAFILE_NAME}"
+        );
+    }
+}
 
 public class LocalSwarmFiles
 {

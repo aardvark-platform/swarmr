@@ -32,15 +32,6 @@ public record Node(
 
     public string ConnectUrl => $"http://{Hostname}:{Port}";
 
-    public (string urlContent, string urlMetadata) GetDownloadLinks(SwarmFile requestedSwarmFile)
-    {
-        var prefix = $"{ConnectUrl}/static/files/{requestedSwarmFile.LogicalName}";
-        return (
-            urlContent : $"{prefix}/{requestedSwarmFile.FileName}",
-            urlMetadata: $"{prefix}/{SwarmFile.METAFILE_NAME}"
-        );
-    }
-
     public Node UpsertFile(SwarmFile x) => this with
     {
         Files = Files.SetItem(x.LogicalName, x)

@@ -1,18 +1,16 @@
 ﻿using Spectre.Console;
-using Swarmr.Base.Api;
+using Swarmr.Base;
 
 namespace Swarmr.Base.Tasks;
 
 /// <summary>
-/// Syncs swarm files from specified node with our own swarm files.
+/// Syncs swarm files from specified node to our own swarm files.
 /// </summary>
 public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
 {
     public async Task RunAsync(Swarm context)
     {
         if (Other.Type == NodeType.Ephemeral) return;
-
-        var changed = false;
 
         foreach (var otherSwarmFile in Other.Files.Values)
         {
@@ -32,9 +30,8 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
             }
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new swarm file {otherSwarmFile.ToJsonString()}");
-            changed = true;
 
-            var (urlContent, urlMetadata) = Other.GetDownloadLinks(otherSwarmFile);
+            var (urlContent, urlMetadata) = otherSwarmFile.GetDownloadLinks(Other);
             using var http = new HttpClient();
 
             var fileContent = context.LocalSwarmFiles.GetContentFile(otherSwarmFile);
@@ -51,10 +48,5 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
             };
             context.UpsertNode(newSelf);
         }
-
-        //if (changed)
-        //{
-        //    await context.Primary.Client.UpdateNodeAsync(context.Self);
-        //}
     }
 }
