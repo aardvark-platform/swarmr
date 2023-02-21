@@ -14,8 +14,20 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
 
         foreach (var otherSwarmFile in Other.Files.Values)
         {
-            var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(otherSwarmFile.LogicalName);
-            if (ownSwarmFile != null && ownSwarmFile.Hash == otherSwarmFile.Hash) continue;
+            try
+            {
+                var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(otherSwarmFile.LogicalName);
+                if (ownSwarmFile != null && ownSwarmFile.Hash == otherSwarmFile.Hash) continue;
+            }
+            catch (Exception e)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red][[ERROR]][[SyncSwarmFilesTask]] delete swarm file {otherSwarmFile.LogicalName}, " +
+                    $"because of\n" +
+                    $"{e.Message.EscapeMarkup()}[/]"
+                    );
+                context.LocalSwarmFiles.Delete(otherSwarmFile);
+            }
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new swarm file {otherSwarmFile.ToJsonString()}");
             changed = true;
