@@ -62,10 +62,9 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         logDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {logDir}");
 
-        var resultZipArchive = context.LocalSwarmFiles.Create(
+        var resultZip = SwarmFile.Create(
             logicalName: Job.Result,
-            fileName: Path.GetFileName(Job.Result) + ".zip",
-            force: true
+            fileName: Path.GetFileName(Job.Result) + ".zip"
             );
 
         try
@@ -76,11 +75,11 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                 foreach (var ifn in setupFileNames)
                 {
                     AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}");
-                    var swarmFile = await context.LocalSwarmFiles.TryReadAsync(name: ifn);
+                    var swarmFile = await context.LocalSwarmFiles.TryReadAsync(logicalName: ifn);
                     if (swarmFile != null)
                     {
                         AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
-                        var source = context.LocalSwarmFiles.GetContentFile(swarmFile);
+                        var source = context.LocalSwarmFiles.GetContentFileInfo(swarmFile);
 
                         AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ...");
                         ZipFile.ExtractToDirectory(source.FullName, exeDir.FullName, overwriteFiles: true);
@@ -127,16 +126,16 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             {
                 var collectPaths = Job.Collect ?? Array.Empty<string>();
 
-                var archiveFile = context.LocalSwarmFiles.GetContentFile(resultZipArchive);
+                var resultZipFileInfo = context.LocalSwarmFiles.GetContentFileInfo(resultZip);
                 {
-                    var dir = archiveFile.Directory ?? throw new Exception(
-                        $"Missing dir path in {archiveFile.FullName}. " +
+                    var dir = resultZipFileInfo.Directory ?? throw new Exception(
+                        $"Missing dir path in {resultZipFileInfo.FullName}. " +
                         $"Error 78620e49-cd24-4cc2-be0e-a2f491bf35a9."
                         );
                     if (!dir.Exists) dir.Create();
                 }
 
-                var zipStream = archiveFile.Open(FileMode.Create, FileAccess.ReadWrite);
+                var zipStream = resultZipFileInfo.Open(FileMode.Create, FileAccess.ReadWrite);
                 var zipArchive = new ZipArchive(zipStream, ZipArchiveMode.Update);
 
                 async Task addToZip(FileInfo source, string zipEntryName)
@@ -203,15 +202,14 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                         zipArchive.Dispose();
                         zipStream.Close();
 
-                        AnsiConsole.WriteLine($"    closed {archiveFile}");
+                        AnsiConsole.WriteLine($"    closed {resultZipFileInfo}");
 
                         AnsiConsole.WriteLine($"    compute hash ...");
-                        var hash = await SwarmFile.ComputeHashAsync(archiveFile);
-                        resultZipArchive = resultZipArchive with { Hash = hash };
-                        AnsiConsole.WriteLine($"    compute hash ... {hash}");
+                        resultZip = await context.LocalSwarmFiles.SetHashFromContentFile(resultZip);
+                        AnsiConsole.WriteLine($"    compute hash ... {resultZip.Hash}");
 
-                        await context.LocalSwarmFiles.WriteAsync(resultZipArchive);
-                        AnsiConsole.MarkupLine($"    created result swarm file [green]{resultZipArchive.ToJsonString().EscapeMarkup()}[/]");
+                        await context.LocalSwarmFiles.WriteAsync(resultZip);
+                        AnsiConsole.MarkupLine($"    created result swarm file [green]{resultZip.ToJsonString().EscapeMarkup()}[/]");
                     }
                     catch (Exception e)
                     {
@@ -230,10 +228,10 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... done");
         }
 
-        if (resultZipArchive != null)
+        if (resultZip != null)
         {
             context.UpsertNode(
-                context.Self.UpsertFile(resultZipArchive)
+                context.Self.UpsertFile(resultZip)
                 );
         }
     }

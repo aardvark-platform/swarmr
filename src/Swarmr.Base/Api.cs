@@ -44,7 +44,7 @@ public interface ISwarm
 public record SwarmRequest(string Type, object Request);
 public record SwarmResponse(string Type, object Response);
 
-public static class INodeClientExtensions
+public static class ISwarmExtensions
 {
     private static async Task<RES> SendAsync<REQ, RES>(this ISwarm client, REQ request) where REQ : notnull
     {

@@ -697,6 +697,9 @@ public class Swarm : ISwarm
         }
     }
 
+    /// <summary>
+    /// Inserts or updates node WITHOUT notifying other nodes.
+    /// </summary>
     internal Node UpsertNode(Node n)
     {
         lock (_nodes)

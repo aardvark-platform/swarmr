@@ -34,13 +34,21 @@ public record Node(
 
     public Node UpsertFile(SwarmFile x) => this with
     {
+        LastSeen = DateTimeOffset.UtcNow,
         Files = Files.SetItem(x.LogicalName, x)
     };
 
+    public Node UpsertFile(SwarmFile x, Swarm updateSwarm) 
+        => updateSwarm.UpsertNode(UpsertFile(x));
+
     public Node UpsertFiles(IEnumerable<SwarmFile> xs) => this with
     {
+        LastSeen = DateTimeOffset.UtcNow,
         Files = Files.SetItems(xs.Select(x => KeyValuePair.Create(x.LogicalName, x)))
     };
+
+    public Node UpsertFiles(IEnumerable<SwarmFile> xs, Swarm updateSwarm)
+        => updateSwarm.UpsertNode(UpsertFiles(xs));
 
     [JsonIgnore]
     public ISwarm Client => new NodeHttpClient(ConnectUrl, self: this);

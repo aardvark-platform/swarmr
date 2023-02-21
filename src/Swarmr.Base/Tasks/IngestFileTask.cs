@@ -22,7 +22,7 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
         if (!localFile.Exists) throw new Exception($"File does not exist (\"{Request.LocalFilePath}\").");
 
         // (1) TARGET
-        var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(name: Request.Name);
+        var ownSwarmFile = await context.LocalSwarmFiles.TryReadAsync(logicalName: Request.Name);
         if (ownSwarmFile != null)
         {
             if (ownSwarmFile.Hash == Request.LocalFileHash)
@@ -35,7 +35,7 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
                 AnsiConsole.WriteLine($"[IngestFileTask][WARNING] replacing {localFile.FullName} ... different hash");
             }
         }
-        var targetFile = context.LocalSwarmFiles.GetContentFile(
+        var targetFile = context.LocalSwarmFiles.GetContentFileInfo(
             logicalName: Request.Name,
             fileName: localFile.Name
             );

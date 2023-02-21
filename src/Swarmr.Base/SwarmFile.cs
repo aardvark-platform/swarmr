@@ -13,6 +13,47 @@ public record SwarmFile(
 {
     public const string METAFILE_NAME = "___swarmfile.json";
 
+    public static SwarmFile Create(string logicalName, string? fileName = null)
+        => new(
+            Created: DateTimeOffset.Now,
+            LogicalName: logicalName,
+            FileName: fileName ?? Path.GetFileName(logicalName),
+            Hash: null!
+            );
+}
+
+public static class SwarmFileExtensions
+{
+    public static (string urlContent, string urlMetadata) GetDownloadLinks(this SwarmFile file, Node fromNode)
+    {
+        var prefix = $"{fromNode.ConnectUrl}/static/files/{file.LogicalName}";
+        return (
+            urlContent: $"{prefix}/{file.FileName}",
+            urlMetadata: $"{prefix}/{SwarmFile.METAFILE_NAME}"
+        );
+    }
+
+    public static async Task<SwarmFile> DownloadToLocalAsync(this SwarmFile file, Node fromNode, LocalSwarmFiles toLocal)
+    {
+        var (urlContent, urlMetadata) = file.GetDownloadLinks(fromNode);
+        using var http = new HttpClient();
+
+        var fileContent = toLocal.GetContentFileInfo(file);
+        var fileMetadata = toLocal.GetMetadataFileInfo(file);
+
+        await using (var @lock = await toLocal.GetLockAsync(file))
+        {
+            fileMetadata.Delete();
+            await http.DownloadToFile(urlContent, fileContent);
+            await http.DownloadToFile(urlMetadata, fileMetadata);
+        }
+
+        return file;
+    }
+}
+
+public class LocalSwarmFiles
+{
     public static async Task<string> ComputeHashAsync(FileInfo file, Action<long>? progress = null)
     {
         var maxLength = Math.Min(file.Length, 128 * 1024 * 1024);
@@ -24,25 +65,10 @@ public record SwarmFile(
         filestream.Close();
         return hash;
     }
-}
 
-public static class SwarmFileExtensions
-{
-    public static (string urlContent, string urlMetadata) GetDownloadLinks(this SwarmFile self, Node fromNode)
-    {
-        var prefix = $"{fromNode.ConnectUrl}/static/files/{self.LogicalName}";
-        return (
-            urlContent: $"{prefix}/{self.FileName}",
-            urlMetadata: $"{prefix}/{SwarmFile.METAFILE_NAME}"
-        );
-    }
-}
+    // LocalSwarmFiles
 
-public class LocalSwarmFiles
-{
     private readonly DirectoryInfo _basedir;
-
-    public IEnumerable<SwarmFile> Files => List();
 
     public LocalSwarmFiles(string basedir)
     {
@@ -50,109 +76,40 @@ public class LocalSwarmFiles
         if (!_basedir.Exists) _basedir.Create();
     }
 
-    public DirectoryInfo GetOrCreateDir(string logicalName)
+    public DirectoryInfo BaseDir => _basedir;
+
+    // create
+
+    public SwarmFile Create(string logicalName, string? fileName = null)
     {
-        var dir = new DirectoryInfo(Path.Combine(_basedir.FullName, logicalName));
-        if (!dir.Exists) dir.Create();
-        return dir;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public DirectoryInfo GetDir(SwarmFile swarmfile)
-        => new(Path.Combine(_basedir.FullName, swarmfile.LogicalName));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool Exists(string logicalName)
-        => GetMetadataFile(logicalName).Exists;
-
-    public void Delete(SwarmFile swarmfile)
-        => GetDir(swarmfile).Delete(recursive: true);
-
-    public SwarmFile Create(string logicalName, string? fileName = null, bool force = false)
-    {
-        fileName ??= Path.GetFileName(logicalName);
-        var result = new SwarmFile(
-            Created: DateTimeOffset.Now,
-            LogicalName: logicalName,
-            FileName: fileName,
-            Hash: null!
+        if (Exists(logicalName)) throw new Exception(
+            $"SwarmFile \"{logicalName}\" already exists in {_basedir}. " +
+            $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
             );
 
-        if (Exists(logicalName))
-        {
-            if (force)
-            {
-                //GetMetadataFile(result).Delete();
-            }
-            else
-            {
-                throw new Exception(
-                    $"SwarmFile \"{logicalName}\" already exists. " +
-                    $"Error 68629f78-4d96-4202-905b-0e76b6fd49ed."
-                    );
-            }
-        }
-
-        return result;
+        return new SwarmFile(
+            Created: DateTimeOffset.Now,
+            LogicalName: logicalName,
+            FileName: fileName ?? Path.GetFileName(logicalName),
+            Hash: null!
+            );
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public FileInfo GetMetadataFile(string logicalName)
-        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, SwarmFile.METAFILE_NAME));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public FileInfo GetMetadataFile(SwarmFile swarmfile)
-        => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, SwarmFile.METAFILE_NAME));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public FileInfo GetContentFile(string logicalName, string fileName)
-        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public FileInfo GetContentFile(SwarmFile swarmfile)
-        => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, swarmfile.FileName));
-
-    public async Task<SwarmFile?> TryReadAsync(string name)
-    {
-        var file = GetMetadataFile(name);
-
-        if (file.Exists)
-        {
-            var s = await File.ReadAllTextAsync(file.FullName);
-            return SwarmUtils.Deserialize<SwarmFile>(s);
-        }
-        else
-        {
-            return null;
-        }
-    }
-
-    public async Task WriteAsync(SwarmFile f)
-    {
-        var file = GetMetadataFile(f.LogicalName);
-        await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
-
-        // delete old content files (with different name)
-        foreach (var info in file.Directory!.EnumerateFileSystemInfos())
-        {
-            if (info.Name == SwarmFile.METAFILE_NAME) continue;
-            if (info.Name == f.FileName) continue;
-            info.Delete();
-            AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
-        }
-    }
-
-    public async Task SetHashFromContentFile(SwarmFile f, Action<long>? progress = null)
+    public async Task<SwarmFile> SetHashFromContentFile(SwarmFile f, Action<long>? progress = null)
     {
         if (f.Hash != null) throw new Exception(
             "Can only set hash if undefined. " +
             "Error d9480da7-e263-4b64-b2db-b9b316cb88dd."
             );
 
-        var h = await SwarmFile.ComputeHashAsync(GetContentFile(f), progress);
+        var h = await ComputeHashAsync(GetContentFileInfo(f), progress);
         f = f with { Hash = h };
-        await WriteAsync(f);
+        return await WriteAsync(f);
     }
+
+    // list
+
+    public IEnumerable<SwarmFile> Files => List();
 
     public IEnumerable<SwarmFile> List()
     {
@@ -161,7 +118,7 @@ public class LocalSwarmFiles
             .ToList();
 
         var result = xs
-            .Select(f => 
+            .Select(f =>
             {
                 try
                 {
@@ -183,4 +140,144 @@ public class LocalSwarmFiles
 
         return (IEnumerable<SwarmFile>)result;
     }
+
+    // exists
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool Exists(string logicalName)
+        => GetMetadataFileInfo(logicalName).Exists;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool Exists(SwarmFile file)
+        => GetMetadataFileInfo(file).Exists;
+
+    // read/write
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public FileInfo GetMetadataFileInfo(SwarmFile swarmfile)
+        => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, SwarmFile.METAFILE_NAME));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public FileInfo GetContentFileInfo(string logicalName, string fileName)
+        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, fileName));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public FileInfo GetContentFileInfo(SwarmFile swarmfile)
+        => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, swarmfile.FileName));
+
+    public async Task<SwarmFile?> TryReadAsync(string logicalName)
+    {
+        var file = GetMetadataFileInfo(logicalName);
+
+        await using var @lock = await GetLockAsync(logicalName);
+
+        if (file.Exists)
+        {
+            var s = await File.ReadAllTextAsync(file.FullName);
+            return SwarmUtils.Deserialize<SwarmFile>(s);
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    public async Task<SwarmFile> WriteAsync(SwarmFile f)
+    {
+        await using var @lock = await GetLockAsync(f);
+
+        var file = GetMetadataFileInfo(f.LogicalName);
+        await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
+
+        // delete old content files (with different name)
+        foreach (var info in file.Directory!.EnumerateFileSystemInfos())
+        {
+            if (info.Name == SwarmFile.METAFILE_NAME) continue;
+            if (info.Name == f.FileName) continue;
+            info.Delete();
+            AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
+        }
+
+        return f;
+    }
+
+    // delete
+
+    public async Task Delete(SwarmFile f)
+    {
+        await using var @lock = await GetLockAsync(f);
+        GetDirectoryInfo(f).Delete(recursive: true);
+    }
+
+    #region locks
+
+    public sealed class AsyncDisposable : IDisposable, IAsyncDisposable
+    {
+        private Func<Task>? _disposeAction;
+
+        public AsyncDisposable(Func<Task> disposeAction)
+        {
+            _disposeAction = disposeAction;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await (_disposeAction?.Invoke() ?? Task.CompletedTask);
+            GC.SuppressFinalize(this);
+        }
+
+        public void Dispose()
+        {
+            _disposeAction?.Invoke();
+            _disposeAction = null;
+        }
+    }
+
+    private Dictionary<string, SemaphoreSlim> _locks = new();
+
+    public Task<IAsyncDisposable> GetLockAsync(SwarmFile file, CancellationToken ct = default)
+        => GetLockAsync(file.LogicalName, ct);
+
+    public async Task<IAsyncDisposable> GetLockAsync(string logicalName, CancellationToken ct = default)
+    {
+        SemaphoreSlim? sem;
+        lock (_locks)
+        {
+            if (!_locks.TryGetValue(logicalName, out sem))
+            {
+                _locks[logicalName] = sem = new SemaphoreSlim(1);
+            }
+        }
+
+        await sem.WaitAsync(ct);
+
+        return new AsyncDisposable(() =>
+        {
+            sem.Release();
+            return Task.CompletedTask;
+        });
+    }
+
+    #endregion
+
+    #region Internal
+
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private DirectoryInfo GetOrCreateDir(string logicalName)
+    {
+        var dir = new DirectoryInfo(Path.Combine(_basedir.FullName, logicalName));
+        if (!dir.Exists) dir.Create();
+        return dir;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private DirectoryInfo GetDirectoryInfo(SwarmFile swarmfile)
+        => new(Path.Combine(_basedir.FullName, swarmfile.LogicalName));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private FileInfo GetMetadataFileInfo(string logicalName)
+        => new(Path.Combine(GetOrCreateDir(logicalName).FullName, SwarmFile.METAFILE_NAME));
+
+    #endregion
 }
