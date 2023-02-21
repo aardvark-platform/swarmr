@@ -79,7 +79,7 @@ public class Swarm : ISwarm
     public void PrintNice()
     {
         var table = new Table()
-            .AddColumns("Swarm", "Id", "Hostname", "Port", "Status", "LastSeen")
+            .AddColumns("Swarm", "Id", "Hostname", "Port", "Status", "Mode", "LastSeen")
             ;
         foreach (var n in Nodes.OrderBy(x => x.Id))
         {
@@ -95,7 +95,8 @@ public class Swarm : ISwarm
                 new Markup((n.Id == SelfId) ? $"[green]{n.Id}[/]" : n.Id),
                 new Markup(n.Hostname),
                 new Markup(n.Port.ToString()),
-                new Markup(n.Status.ToString()),
+                new Markup(n.Status.ToString().ToLower()),
+                new Markup(n.Type.ToString().ToLower()),
                 new Markup($"{n.Ago.TotalSeconds:0.0} [[s]]").Justify(Justify.Right)
                 );
         }
@@ -273,13 +274,10 @@ public class Swarm : ISwarm
             // (FUTURE: validation, e.g. black/white listing, etc.)
             UpsertNode(request.Node);
 
-            _ = Task.Run(async () =>
-            {
-                await Others
-                    //.Except(nodeWhoWantsToJoin)
-                    .SendEachAsync(n => n.UpdateNodeAsync(request.Node))
-                    ;
-            });
+            Others
+                //.Except(nodeWhoWantsToJoin)
+                .SendEach(n => n.UpdateNodeAsync(request.Node))
+                ;
         }
         else
         {
@@ -312,7 +310,7 @@ public class Swarm : ISwarm
             if (IAmPrimary)
             {
                 // notify all nodes of newly joined node ...
-                await Others.Except(request.Node).SendEachAsync(n => n.LeaveSwarmAsync(request.Node));
+                Others.Except(request.Node).SendEach(n => n.LeaveSwarmAsync(request.Node));
             }
             else
             {
@@ -376,10 +374,7 @@ public class Swarm : ISwarm
         {
             // I am the primary node, so it is my duty to
             // inform all others about this new member
-            _ = Task.Run(async () =>
-            {
-                await Others.Except(request.Node).SendEachAsync(n => n.UpdateNodeAsync(request.Node));
-            });
+            Others.Except(request.Node).SendEach(n => n.UpdateNodeAsync(request.Node));
 
             //printElapsed("i am primary");
         }

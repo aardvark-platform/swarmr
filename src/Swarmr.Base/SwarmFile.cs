@@ -1,4 +1,5 @@
 ﻿using Spectre.Console;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 
@@ -150,9 +151,26 @@ public class LocalSwarmFiles
             .ToList();
 
         var result = xs
-            .Select(f => SwarmUtils.Deserialize<SwarmFile>(File.ReadAllText(f.FullName)))
+            .Select(f => 
+            {
+                try
+                {
+                    return SwarmUtils.TryDeserialize<SwarmFile>(File.ReadAllText(f.FullName));
+                }
+                catch (Exception e)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[red][[ERROR]]Corrupt swarm file metadata. " +
+                        $"Deleting {f.FullName.EscapeMarkup()}.\n" +
+                        $"{e.Message.EscapeMarkup()}[/]"
+                        );
+                    f.Delete();
+                    return null;
+                }
+            })
+            .Where(x => x != null)
             ;
 
-        return result;
+        return (IEnumerable<SwarmFile>)result;
     }
 }

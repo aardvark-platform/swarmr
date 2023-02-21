@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using static System.Net.WebRequestMethods;
 
 namespace Swarmr.Base;
 
@@ -237,6 +236,27 @@ public static class SwarmUtils
             )
     };
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T? TryDeserialize<T>(object self)
+        => (T?)TryDeserialize(self, typeof(T));
+
+    public static object? TryDeserialize(object self, Type type) => self switch
+    {
+        object x when x.GetType() == type => x,
+
+        JsonElement e => JsonSerializer.Deserialize(e, type, JsonOptions),
+
+        string s => JsonSerializer.Deserialize(s, type, JsonOptions),
+
+        null => null,
+
+        _ => throw new Exception(
+            $"Unknown request object \"{self.GetType().FullName}\". " +
+            $"Error d6f9dfbd-ed17-4ba8-94c7-afa7e1663cd3."
+            )
+    };
+
+
     public static readonly JsonSerializerOptions JsonOptions = new()
     {
         AllowTrailingCommas = true,
@@ -263,21 +283,24 @@ public static class Extensions
     public static IEnumerable<Node> Except(this IEnumerable<Node> xs, string nodeId)
         => xs.Where(x => x.Id != nodeId);
 
-    public static async Task SendEachAsync(this IEnumerable<Node> xs, Func<ISwarm, Task> action)
+    public static void SendEach(this IEnumerable<Node> xs, Func<ISwarm, Task> action)
     {
         foreach (var x in xs)
         {
-            try
+            _ = Task.Run(async () =>
             {
-                await action(x.Client);
-            }
-            catch (Exception e)
-            {
-                AnsiConsole.MarkupLine(
-                    $"[yellow][[WARNING]] SendEachAsync action failed for node {x.Id}[/].\n" +
-                    $"{e.Message.EscapeMarkup()}"
-                    );
-            }
+                try
+                {
+                    await action(x.Client);
+                }
+                catch (Exception e)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[yellow][[WARNING]] SendEachAsync action failed for node {x.Id}[/].\n" +
+                        $"{e.Message.EscapeMarkup()}"
+                        );
+                }
+            });
         }
     }
 }
