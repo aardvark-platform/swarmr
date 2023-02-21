@@ -1,5 +1,6 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
+using System.Xml.Linq;
 
 namespace Swarmr.Base.Tasks;
 
@@ -24,12 +25,16 @@ public record ScheduleJobTask(string Id, JobConfig Job) : ISwarmTask
             if (runJobResponse.Accepted)
             {
                 AnsiConsole.MarkupLine($"[lime][[ScheduleJobTask]] sending job {Id} to node {node.Id} ... ACCEPTED[/]");
-                break;
+                return;
             }
             else
             {
                 AnsiConsole.MarkupLine($"[lime][[ScheduleJobTask]] sending job {Id} to node {node.Id} ... JOB REJECTED[/]");
             }
         }
+
+        var delay = TimeSpan.FromSeconds(15);
+        AnsiConsole.MarkupLine($"[lime][[ScheduleJobTask]] no idle worker nodes, trying again in {delay}.[/]");
+        context.EnqueueDelayedAsync(this, delay);
     }
 }

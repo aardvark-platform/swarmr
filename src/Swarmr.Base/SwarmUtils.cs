@@ -82,13 +82,33 @@ public static class SwarmUtils
 
     public static async Task DownloadToFile(this HttpClient http, string url, FileInfo file)
     {
-        AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ...");
-        var sourceStream = await http.GetStreamAsync(url);
-        var targetStream = System.IO.File.Open(file.FullName, FileMode.Create, FileAccess.Write, FileShare.None);
-        await sourceStream.CopyToAsync(targetStream);
-        targetStream.Close();
-        sourceStream.Close();
-        AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ... completed");
+        for (var i = 0; i < 3; i++)
+        {
+            Stream? sourceStream = null;
+            Stream? targetStream = null;
+
+            try
+            {
+                AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ...");
+                targetStream = System.IO.File.Open(file.FullName, FileMode.Create, FileAccess.Write, FileShare.None);
+                sourceStream = await http.GetStreamAsync(url);
+                await sourceStream.CopyToAsync(targetStream);
+                return;
+            }
+            catch (Exception e)
+            {
+                AnsiConsole.MarkupLine($"[red][[DownloadToFile]] {e.ToString().EscapeMarkup()}[/]");
+            }
+            finally
+            {
+                targetStream?.Close();
+                sourceStream?.Close();
+                AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ... completed");
+            }
+
+            await Task.Delay(1234);
+            AnsiConsole.MarkupLine($"[red][[DownloadToFile]] RETRY {i+1}: downloading {url} to {file.FullName} ...[/]");
+        }
     }
 
     public static (string? hostname, int? port) ParseHost(string? host)

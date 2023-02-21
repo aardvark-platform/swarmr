@@ -78,15 +78,52 @@ public class Swarm : ISwarm
 
     public void PrintNice()
     {
-        var compact = new
+        var table = new Table()
+            .AddColumns(" ", "Id", "Hostname", "Port", "Status", "LastSeen")
+            ;
+        foreach (var n in Nodes.OrderBy(x => x.Id))
         {
-            SelfId,
-            PrimaryId,
-            IAmPrimary,
-            Nodes = Nodes.Select(n => n with { Files = n.Files.Clear() })
-        };
-        var swarmPanel = new Panel(compact.ToJsonString().EscapeMarkup()).Header("Swarm");
-        AnsiConsole.Write(swarmPanel);
+            var who = (n.Id == PrimaryId, n.Id == Self.Id) switch
+            {
+                (false, false) => "",
+                (false, true ) => "[green]SELF[/]",
+                (true , false) => "PRIMARY",
+                (true , true ) => "[green]I AM PRIMARY[/]"
+            };
+            table.AddRow(
+                new Markup(who),
+                new Markup((n.Id == SelfId) ? $"[green]{n.Id}[/]" : n.Id),
+                new Markup(n.Hostname),
+                new Markup(n.Port.ToString()),
+                new Markup(n.Status.ToString()),
+                new Markup($"{n.Ago.TotalSeconds:0.0} [[s]]").Justify(Justify.Right)
+                );
+        }
+
+        var rows = new Rows(
+            new Markup($"\nSelfId: {SelfId}{(IAmPrimary ? "\n[lime]I AM PRIMARY[/]" : "")}"),
+            table
+            );
+
+        var swarmPanel = new Panel(rows).Header("Swarm");
+
+        AnsiConsole.Write(table);
+    }
+
+    public async void EnqueueDelayedAsync(ISwarmTask task, TimeSpan delay)
+    {
+        AnsiConsole.MarkupLine($"[red][[DEBUG]] EnqueueDelayedAsync {delay}[/]");
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            await Task.Delay(delay);
+            sw.Stop(); if (Math.Abs(sw.Elapsed.TotalSeconds - delay.TotalSeconds) > 0.1) Debugger.Break();
+            await _localTaskQueue.Enqueue(task);
+        }
+        catch (Exception e)
+        {
+            AnsiConsole.MarkupLine($"[red][[ERROR]]{e.ToString().EscapeMarkup()}[/]");
+        }
     }
 
     #region Connect (=construct)
@@ -356,7 +393,7 @@ public class Swarm : ISwarm
         //printElapsed("print nice");
 
         // sync swarm files
-        if (request.Node.Id != Self.Id)
+        if (request.Node.Id != Self.Id && request.Node.Hostname != Self.Hostname)
         {
             var task = new SyncSwarmFilesTask(
                 Id: Guid.NewGuid().ToString(),
@@ -598,7 +635,7 @@ public class Swarm : ISwarm
                     // I am the PRIMARY node:  let's ping all nodes to check health
                     // if there are unresponsive nodes, then notify everyone to remove them
                     var changed = await RefreshNodeListAsync(forcePingWithinTtl: false);
-                    //if (changed) PrintNice();
+                    if (changed) _ = Task.Run(PrintNice);
                 }
                 else
                 {
@@ -681,6 +718,7 @@ public class Swarm : ISwarm
             _nodes[n.Id] = n;
             return n;
         }
+
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -720,6 +758,7 @@ public class Swarm : ISwarm
         // (this can happen if a node is restarted more than once
         // within the TTL time window (with the same URL but different ID)
         var gs = Nodes.GroupBy(n => n.ConnectUrl).Where(g => g.Count() > 1).ToArray();
+        var changed = false;
 
         // each group
         foreach (var g in gs)
@@ -737,16 +776,18 @@ public class Swarm : ISwarm
             foreach (var node in g)
             {
                 RemoveNode(node.Id);
+                changed = true;
                 if (Verbose) Console.WriteLine($"[WARNING]   removed node {node.Id}");
             }
 
             // (2) now connect to the URL and get the correct node info
             try
             {
-                if (Verbose) Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info");
+                if (Verbose) Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info ... ");
                 var client = new NodeHttpClient(connectionUrl);
                 var n = await client.PingAsync();
-                if (Verbose) Console.WriteLine($"[WARNING]   current node info is {n.ToJsonString()}");
+                if (Verbose) Console.WriteLine($"[WARNING]   contacting {connectionUrl} to retrieve current node info ... DONE");
+                //if (Verbose) Console.WriteLine($"[WARNING]   current node info is {n.ToJsonString()}");
                 UpsertNode(n);
             }
             catch
@@ -758,6 +799,8 @@ public class Swarm : ISwarm
                 }
             }
         }
+
+        if (changed && Verbose) _ = Task.Run(PrintNice);
     }
 
     /// <summary>
@@ -847,7 +890,8 @@ public class Swarm : ISwarm
 
                 // (2) remove all nodes that are not responsive
                 log($"remove all nodes that are not responsive ...");
-                await RefreshNodeListAsync(forcePingWithinTtl: true);
+                var changed = await RefreshNodeListAsync(forcePingWithinTtl: true);
+                if (changed) _ = Task.Run(PrintNice);
 
                 // (3) who should be the primary?
                 log($"choose nominee for primary ...");

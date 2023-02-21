@@ -3,8 +3,8 @@ SETUP sm/test/data1
 
 EXECUTE 
   Sum.exe   # exe
-  work 60    # args
+  work 40    # args
 
 COLLECT .
 
-RESULT sm/test/foo/work26
+RESULT sm/test/foo/work101

@@ -1,0 +1,10 @@
+SETUP sm/test/exe
+SETUP sm/test/data3
+
+EXECUTE 
+  Sum.exe   # exe
+  work 30    # args
+
+COLLECT .
+
+RESULT sm/test/foo/work103

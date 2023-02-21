@@ -9,7 +9,7 @@ public class SwarmTaskQueue
     public Task Enqueue(ISwarmTask task)
     {
         lock (_queue) _queue.Enqueue(task);
-        _ = Task.Run(() => AnsiConsole.MarkupLine($"[aqua][[SwarmTaskQueue]][[ENQUEUE]]{task.GetType().FullName.EscapeMarkup()}[/]"));
+        _ = Task.Run(() => AnsiConsole.MarkupLine($"[aqua][[SwarmTaskQueue]][[{_queue.Count}]][[ENQUEUE]]{task.GetType().FullName.EscapeMarkup()}[/]"));
         return Task.CompletedTask;
     }
 
@@ -19,7 +19,7 @@ public class SwarmTaskQueue
         lock (_queue) _queue.TryDequeue(out result);
         if (result != null)
         {
-            _ = Task.Run(() => AnsiConsole.MarkupLine($"[teal][[SwarmTaskQueue]][[DEQUEUE]]{result.GetType().FullName.EscapeMarkup()}[/]"));
+            _ = Task.Run(() => AnsiConsole.MarkupLine($"[teal][[SwarmTaskQueue]][[{_queue.Count}]][[DEQUEUE]]{result.GetType().FullName.EscapeMarkup()}[/]"));
         }
         return Task.FromResult(result);
     }
