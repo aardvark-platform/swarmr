@@ -62,13 +62,6 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         logDir.Create();
         AnsiConsole.MarkupLine($"[[RunJobTask]][[Setup]] [green]created dir[/] {logDir}");
 
-        var resultZip = SwarmFile.Create(
-            logicalName: Job.Result,
-            fileName: Path.GetFileName(Job.Result) + ".zip"
-            );
-
-        await using var resultZipLock = await context.LocalSwarmFiles.GetLockAsync(resultZip, label: "ProcessJobAsync");
-
         try
         {
             // (1) setup (extract swarm files into job dir)
@@ -127,6 +120,13 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             // (3) collect result files
             {
                 var collectPaths = Job.Collect ?? Array.Empty<string>();
+
+                var resultZip = SwarmFile.Create(
+                    logicalName: Job.Result,
+                    fileName: Path.GetFileName(Job.Result) + ".zip"
+                    );
+
+                await using var resultZipLock = await context.LocalSwarmFiles.GetLockAsync(resultZip, label: "ProcessJobAsync");
 
                 var resultZipFileInfo = context.LocalSwarmFiles.GetContentFileInfo(resultZip);
                 {
@@ -212,6 +212,11 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
 
                         await context.LocalSwarmFiles.WriteAsync(resultZip);
                         AnsiConsole.MarkupLine($"    created result swarm file [green]{resultZip.ToJsonString().EscapeMarkup()}[/]");
+
+                        context.UpsertNode(
+                            context.Self.UpsertFile(resultZip)
+                            );
+                        AnsiConsole.MarkupLine($"    announced new node file [green]{resultZip.LogicalName}[/]");
                     }
                     catch (Exception e)
                     {
@@ -228,13 +233,6 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... ");
             jobDir.Delete(recursive: true);
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... done");
-        }
-
-        if (resultZip != null)
-        {
-            context.UpsertNode(
-                context.Self.UpsertFile(resultZip)
-                );
         }
     }
 
