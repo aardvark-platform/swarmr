@@ -76,6 +76,8 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                         AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
                         var source = context.LocalSwarmFiles.GetContentFileInfo(swarmFile);
 
+                        await using var swarmFileLock = await context.LocalSwarmFiles.GetLockAsync(swarmFile, "ProcessJobAsync setup");
+
                         AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ...");
                         ZipFile.ExtractToDirectory(source.FullName, exeDir.FullName, overwriteFiles: true);
                         AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ... done");
