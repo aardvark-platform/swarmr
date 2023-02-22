@@ -257,6 +257,7 @@ public class LocalSwarmFiles
 
         if (f == null)
         {
+            GetDirectoryInfo(logicalName).Create();
             lockFileInfo = GetLockFileInfo(logicalName);
             var waitMilliseconds = 42;
 
