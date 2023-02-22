@@ -233,7 +233,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             // (4) cleanup
             AnsiConsole.WriteLine($"[RunJobTask][Cleanup]");
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... ");
-            jobDir.Delete(recursive: true);
+            //jobDir.Delete(recursive: true);
             AnsiConsole.WriteLine($"    DELETE {jobDir} ... done");
         }
     }
