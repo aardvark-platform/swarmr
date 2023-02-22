@@ -88,26 +88,28 @@ public static class SwarmUtils
 
             try
             {
-                AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ...");
-                targetStream = System.IO.File.Open(file.FullName, FileMode.Create, FileAccess.Write, FileShare.None);
+                AnsiConsole.WriteLine($"[DownloadToFile][{i + 1}] downloading {url} to {file.FullName} ...");
+                targetStream = File.Open(file.FullName, FileMode.Create, FileAccess.Write, FileShare.None);
                 sourceStream = await http.GetStreamAsync(url);
                 await sourceStream.CopyToAsync(targetStream);
+                AnsiConsole.WriteLine($"[DownloadToFile][{i + 1}]downloading {url} to {file.FullName} ... completed");
                 return;
             }
             catch (Exception e)
             {
-                AnsiConsole.MarkupLine($"[red][[DownloadToFile]] {e.ToString().EscapeMarkup()}[/]");
+                AnsiConsole.MarkupLine($"[yellow][[DownloadToFile]][[{i + 1}]] downloading {url} to {file.FullName} ... failed\n{e.ToString().EscapeMarkup()}[/]");
             }
             finally
             {
                 targetStream?.Close();
                 sourceStream?.Close();
-                AnsiConsole.WriteLine($"[DownloadToFile] downloading {url} to {file.FullName} ... completed");
             }
 
             await Task.Delay(1234);
-            AnsiConsole.MarkupLine($"[red][[DownloadToFile]] RETRY {i+1}: downloading {url} to {file.FullName} ...[/]");
+            AnsiConsole.MarkupLine($"[yellow][[DownloadToFile]][[{i + 1}]] downloading {url} to {file.FullName} ... RETRY[/]");
         }
+
+        AnsiConsole.MarkupLine($"[red][[DownloadToFile]] downloading {url} to {file.FullName} ... GIVING UP[/]");
     }
 
     public static (string? hostname, int? port) ParseHost(string? host)
