@@ -42,6 +42,7 @@ public record IngestFileTask(string Id, IngestFileRequest Request) : ISwarmTask
 
         // (2) copy [SOURCE].zip to [TARGETDIR]/[HASH].zip
         var sourceStream = localFile.OpenRead();
+        if (targetFile.Exists) targetFile.Delete();
         var targetStream = targetFile.OpenWrite();
         AnsiConsole.WriteLine($"[IngestFileTask] ingest {localFile.FullName} ...");
         sw.Restart();
