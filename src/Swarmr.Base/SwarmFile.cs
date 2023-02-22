@@ -1,6 +1,7 @@
 ﻿using Spectre.Console;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace Swarmr.Base;
 
@@ -12,6 +13,7 @@ public record SwarmFile(
     )
 {
     public const string METAFILE_NAME = "___swarmfile.json";
+    public const string LOCKFILE_NAME = "___lock";
 
     public static SwarmFile Create(string logicalName, string? fileName = null)
         => new(
@@ -41,7 +43,7 @@ public static class SwarmFileExtensions
         var fileContent = toLocal.GetContentFileInfo(file);
         var fileMetadata = toLocal.GetMetadataFileInfo(file);
 
-        await using (var @lock = await toLocal.GetLockAsync(file))
+        await using (var @lock = await toLocal.GetLockAsync(file, label: "DownloadToLocalAsync"))
         {
             fileMetadata.Delete();
             await http.DownloadToFile(urlContent, fileContent);
@@ -69,11 +71,16 @@ public class LocalSwarmFiles
     // LocalSwarmFiles
 
     private readonly DirectoryInfo _basedir;
+    private readonly string _nodeId;
+    private readonly byte[] _nodeIdUtf8;
 
-    public LocalSwarmFiles(string basedir)
+    public LocalSwarmFiles(string basedir, string nodeId)
     {
         _basedir = new(basedir);
         if (!_basedir.Exists) _basedir.Create();
+
+        _nodeId = nodeId;
+        _nodeIdUtf8 = Encoding.UTF8.GetBytes(_nodeId);
     }
 
     public DirectoryInfo BaseDir => _basedir;
@@ -165,11 +172,13 @@ public class LocalSwarmFiles
     public FileInfo GetContentFileInfo(SwarmFile swarmfile)
         => new(Path.Combine(GetOrCreateDir(swarmfile.LogicalName).FullName, swarmfile.FileName));
 
+
+
     public async Task<SwarmFile?> TryReadAsync(string logicalName)
     {
         var file = GetMetadataFileInfo(logicalName);
 
-        await using var @lock = await GetLockAsync(logicalName);
+        await using var @lock = await GetLockAsync(logicalName, label: "TryReadAsync");
 
         if (file.Exists)
         {
@@ -184,7 +193,7 @@ public class LocalSwarmFiles
 
     public async Task<SwarmFile> WriteAsync(SwarmFile f)
     {
-        await using var @lock = await GetLockAsync(f);
+        await using var @lock = await GetLockAsync(f, label: "WriteAsync");
 
         var file = GetMetadataFileInfo(f.LogicalName);
         await File.WriteAllTextAsync(file.FullName, f.ToJsonString());
@@ -193,6 +202,7 @@ public class LocalSwarmFiles
         foreach (var info in file.Directory!.EnumerateFileSystemInfos())
         {
             if (info.Name == SwarmFile.METAFILE_NAME) continue;
+            if (info.Name == SwarmFile.LOCKFILE_NAME) continue;
             if (info.Name == f.FileName) continue;
             info.Delete();
             AnsiConsole.WriteLine($"[LocalSwarmFiles] deleted {info.FullName}");
@@ -205,11 +215,13 @@ public class LocalSwarmFiles
 
     public async Task Delete(SwarmFile f)
     {
-        await using var @lock = await GetLockAsync(f);
+        await using var @lock = await GetLockAsync(f, label: "Delete");
         GetDirectoryInfo(f).Delete(recursive: true);
     }
 
     #region locks
+
+    private Dictionary<string, FileStream> _locks = new();
 
     public sealed class AsyncDisposable : IDisposable, IAsyncDisposable
     {
@@ -233,27 +245,60 @@ public class LocalSwarmFiles
         }
     }
 
-    private Dictionary<string, SemaphoreSlim> _locks = new();
+    public Task<IAsyncDisposable> GetLockAsync(SwarmFile file, string label, CancellationToken ct = default)
+        => GetLockAsync(file.LogicalName, label, ct);
 
-    public Task<IAsyncDisposable> GetLockAsync(SwarmFile file, CancellationToken ct = default)
-        => GetLockAsync(file.LogicalName, ct);
-
-    public async Task<IAsyncDisposable> GetLockAsync(string logicalName, CancellationToken ct = default)
+    public async Task<IAsyncDisposable> GetLockAsync(string logicalName, string label, CancellationToken ct = default)
     {
-        SemaphoreSlim? sem;
-        lock (_locks)
+        FileInfo? lockFileInfo = null;
+        FileStream? f = null;
+
+        lock (_locks) _locks.TryGetValue(logicalName, out f);
+
+        if (f == null)
         {
-            if (!_locks.TryGetValue(logicalName, out sem))
+            lockFileInfo = GetLockFileInfo(logicalName);
+            var waitMilliseconds = 42;
+
+            while (true)
             {
-                _locks[logicalName] = sem = new SemaphoreSlim(1);
+                ct.ThrowIfCancellationRequested();
+
+                try
+                {
+                    f = lockFileInfo.Open(FileMode.Create, access: FileAccess.Write, share: FileShare.Read);
+                    f.Write(_nodeIdUtf8);
+                    f.Flush();
+                    lock (_locks) { _locks.Add(logicalName, f); }
+                    AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} ACQUIRED[/]");
+                    break;
+                }
+                catch
+                {
+                    AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} RETRY IN {waitMilliseconds} ms[/]");
+                    await Task.Delay(waitMilliseconds, ct);
+                    waitMilliseconds = Math.Min(waitMilliseconds * 2, 1000);
+                }
             }
         }
-
-        await sem.WaitAsync(ct);
+        else
+        {
+            AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} ACQUIRED (CACHED)[/]");
+        }
 
         return new AsyncDisposable(() =>
         {
-            sem.Release();
+            f.Close();
+            lock (_locks) _locks.Remove(logicalName);
+            try 
+            {
+                lockFileInfo!.Delete();
+            } 
+            catch
+            {
+                AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} LOCKFILE DELETE FAILED[/]");
+            }
+            AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} RELEASED[/]");
             return Task.CompletedTask;
         });
     }
@@ -262,6 +307,9 @@ public class LocalSwarmFiles
 
     #region Internal
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private FileInfo GetLockFileInfo(string logicalName)
+        => new(Path.Combine(GetDirectoryInfo(logicalName).FullName, SwarmFile.LOCKFILE_NAME));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private DirectoryInfo GetOrCreateDir(string logicalName)
@@ -274,6 +322,10 @@ public class LocalSwarmFiles
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private DirectoryInfo GetDirectoryInfo(SwarmFile swarmfile)
         => new(Path.Combine(_basedir.FullName, swarmfile.LogicalName));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private DirectoryInfo GetDirectoryInfo(string logicalName)
+        => new(Path.Combine(_basedir.FullName, logicalName));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private FileInfo GetMetadataFileInfo(string logicalName)

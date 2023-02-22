@@ -594,7 +594,10 @@ public class Swarm : ISwarm
             d.Create();
         }
 
-        LocalSwarmFiles = new(Path.Combine(d.FullName, "files"));
+        LocalSwarmFiles = new(
+            basedir: Path.Combine(d.FullName, "files"),
+            nodeId: self.Id
+            );
         self = self.UpsertFiles(LocalSwarmFiles.Files);
 
         foreach (var n in nodes) _nodes.Add(n.Id, n);

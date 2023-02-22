@@ -26,7 +26,7 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
                     $"because of\n" +
                     $"{e.Message.EscapeMarkup()}[/]"
                     );
-                context.LocalSwarmFiles.Delete(otherSwarmFile);
+                await context.LocalSwarmFiles.Delete(otherSwarmFile);
             }
 
             AnsiConsole.WriteLine($"[UpdateNodeAsync] detected new swarm file {otherSwarmFile.ToJsonString()}");
