@@ -73,14 +73,21 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                     var swarmFile = await context.LocalSwarmFiles.TryReadAsync(logicalName: ifn);
                     if (swarmFile != null)
                     {
-                        AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
-                        var source = context.LocalSwarmFiles.GetContentFileInfo(swarmFile);
+                        try
+                        {
+                            AnsiConsole.WriteLine($"    {swarmFile.ToJsonString()}");
+                            var source = context.LocalSwarmFiles.GetContentFileInfo(swarmFile);
 
-                        await using var swarmFileLock = await context.LocalSwarmFiles.GetLockAsync(swarmFile, "ProcessJobAsync setup");
+                            await using var swarmFileLock = await context.LocalSwarmFiles.GetLockAsync(swarmFile, "ProcessJobAsync setup");
 
-                        AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ...");
-                        ZipFile.ExtractToDirectory(source.FullName, exeDir.FullName, overwriteFiles: true);
-                        AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ... done");
+                            AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ...");
+                            ZipFile.ExtractToDirectory(source.FullName, exeDir.FullName, overwriteFiles: true);
+                            AnsiConsole.WriteLine($"    extracting {swarmFile.LogicalName} ... done");
+                        }
+                        catch (Exception e)
+                        {
+                            AnsiConsole.MarkupLine($"[red][[ERROR]] {e.ToString().EscapeMarkup()}[/]");
+                        }
                     }
                     else
                     {

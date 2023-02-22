@@ -2,6 +2,7 @@
   "profiles": {
     "Swarmr.Base": {
       "commandName": "Project",
+      "commandLineArgs": "join -v",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
