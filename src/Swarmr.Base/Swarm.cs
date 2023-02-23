@@ -163,7 +163,12 @@ public class Swarm : ISwarm
         }
 
         // init/sync local files
-        if (!swarm.IAmPrimary) await swarm.Primary.Client.UpdateNodeAsync(swarm.Self);
+        //if (!swarm.IAmPrimary) await swarm.Primary.Client.UpdateNodeAsync(swarm.Self);
+        foreach (var n in swarm.Others)
+        {
+            var task = SyncSwarmFilesTask.Create(n);
+            await swarm._localTaskQueue.Enqueue(task);
+        }
 
         // start housekeeping (background)
         swarm.StartHouseKeepingAsync(ct);

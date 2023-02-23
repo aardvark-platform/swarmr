@@ -7,6 +7,11 @@ namespace Swarmr.Base.Tasks;
 /// </summary>
 public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
 {
+    public static SyncSwarmFilesTask Create(Node other) => new(
+        Id: $"SyncSwarmFilesTask-{Guid.NewGuid()}",
+        Other: other
+        );
+
     public async Task RunAsync(Swarm context)
     {
         // we ignore ephemeral source nodes as they disappear quickly ...
