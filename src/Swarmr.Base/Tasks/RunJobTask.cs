@@ -102,6 +102,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             // (2) execute command lines
             var commandLines = Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
             var stdoutFiles = new FileInfo[commandLines.Count];
+            var stderrFiles = new FileInfo[commandLines.Count];
             {
                 var imax = commandLines.Count;
                 for (var i = 0; i < imax; i++)
@@ -113,9 +114,10 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                     try
                     {
                         stdoutFiles[i] = new FileInfo(Path.Combine(logDir.FullName, $"stdout{i}.txt"));
+                        stderrFiles[i] = new FileInfo(Path.Combine(logDir.FullName, $"stderr{i}.txt"));
                         var stdoutStream = stdoutFiles[i].Open(FileMode.Create, FileAccess.Write, FileShare.Read);
-
-                        await ExecuteAsync(exe, args, exeDir, stdoutStream);
+                        var stderrStream = stderrFiles[i].Open(FileMode.Create, FileAccess.Write, FileShare.Read);
+                        await ExecuteAsync(exe, args, exeDir, stdoutStream, stderrStream);
 
                         stdoutStream.Close();
                     }
@@ -167,6 +169,13 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                         await addToZip(stdoutFile, $"___job-{Id}/{stdoutFile.Name}");
                     }
 
+                    // stderr log(s)
+                    foreach (var stderrFile in stderrFiles)
+                    {
+                        await addToZip(stderrFile, $"___job-{Id}/{stderrFile.Name}");
+                    }
+
+                    // collect files/directories
                     var imax = collectPaths.Count;
                     for (var i = 0; i < imax; i++)
                     {
@@ -245,7 +254,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         }
     }
 
-    private static async Task ExecuteAsync(FileInfo exe, string args, DirectoryInfo exeWorkingDir, Stream stdoutTarget)
+    private static async Task ExecuteAsync(FileInfo exe, string args, DirectoryInfo exeWorkingDir, Stream stdoutTarget, Stream stderrTarget)
     {
         var processStartInfo = new ProcessStartInfo
         {
@@ -254,6 +263,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             CreateNoWindow = true,
             UseShellExecute = false,
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
             WorkingDirectory = exeWorkingDir.FullName
         };
 
@@ -265,24 +275,53 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         var newProcessStarted = process.Start();
         AnsiConsole.WriteLine($"newProcessStarted = {newProcessStarted}");
 
-        using var stdout = process.StandardOutput;
-        //await stdout.BaseStream.CopyToAsync(stdoutTarget);
-        _ = Task.Run(async () =>
         {
             AnsiConsole.WriteLine($"[STDOUT] attaching");
-            while (true)
+            process.OutputDataReceived += (sender, args) =>
             {
-                var line = await stdout.ReadLineAsync();
-                if (line == null)
+                try
                 {
-                    AnsiConsole.WriteLine("[STDOUT] EOF");
-                    return;
+                    var line = args.Data;
+                    if (line == null)
+                    {
+                        AnsiConsole.WriteLine("[STDOUT] EOF");
+                        return;
+                    }
+                    AnsiConsole.WriteLine($"[STDOUT] {line}");
+                    stdoutTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
+                    stdoutTarget.Flush();
                 }
-                AnsiConsole.WriteLine($"[STDOUT] {line}");
-                stdoutTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
-                stdoutTarget.Flush();
-            }
-        });
+                catch (Exception e)
+                {
+                    AnsiConsole.MarkupLine($"[[STDOUT]] [red]{e.Message}[/]");
+                }
+            };
+            process.BeginOutputReadLine();
+        }
+
+        {
+            AnsiConsole.WriteLine($"[STDERR] attaching");
+            process.ErrorDataReceived += (sender, args) =>
+            {
+                try
+                {
+                    var line = args.Data;
+                    if (line == null)
+                    {
+                        AnsiConsole.WriteLine("[STDERR] EOF");
+                        return;
+                    }
+                    AnsiConsole.WriteLine($"[STDERR] {line}");
+                    stderrTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
+                    stderrTarget.Flush();
+                }
+                catch (Exception e)
+                {
+                    AnsiConsole.MarkupLine($"[[STDERR]] [red]{e.Message}[/]");
+                }
+            };
+            process.BeginErrorReadLine();
+        }
 
         AnsiConsole.WriteLine($"[{DateTimeOffset.UtcNow}] awaiting exit");
 

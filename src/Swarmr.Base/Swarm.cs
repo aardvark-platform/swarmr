@@ -281,6 +281,7 @@ public class Swarm : ISwarm
 
             Others
                 //.Except(nodeWhoWantsToJoin)
+                .Where(n => n.Type != NodeType.Ephemeral)
                 .SendEach(n => n.UpdateNodeAsync(request.Node))
                 ;
         }
@@ -315,7 +316,11 @@ public class Swarm : ISwarm
             if (IAmPrimary)
             {
                 // notify all nodes of newly joined node ...
-                Others.Except(request.Node).SendEach(n => n.LeaveSwarmAsync(request.Node));
+                Others
+                    .Except(request.Node)
+                    .Where(n => n.Type != NodeType.Ephemeral)
+                    .SendEach(n => n.LeaveSwarmAsync(request.Node))
+                    ;
             }
             else
             {
@@ -379,7 +384,11 @@ public class Swarm : ISwarm
         {
             // I am the primary node, so it is my duty to
             // inform all others about this new member
-            Others.Except(request.Node).SendEach(n => n.UpdateNodeAsync(request.Node));
+            Others
+                .Except(request.Node)
+                .Where(n => n.Type != NodeType.Ephemeral)
+                .SendEach(n => n.UpdateNodeAsync(request.Node))
+                ;
 
             //printElapsed("i am primary");
         }
