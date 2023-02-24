@@ -52,6 +52,34 @@ app.Configure(config =>
                   ;
         })
         ;
+
+    config
+        .AddBranch("secrets", c => {
+            c.SetDescription(
+                "Manages swarm secrets."
+                );
+
+            c.AddCommand<SecretsSetCommand>("set")
+                .WithAlias("add")
+                .WithDescription("Sets a key/value pair.")
+                .WithExample(new[] { "secrets", "set", "KEY1", "0dabc939-4520-4960-b602-03625944a1c3" })
+                ;
+
+            c.AddCommand<SecretsRemoveCommand>("remove")
+                .WithAlias("rm")
+                .WithAlias("delete")
+                .WithAlias("del")
+                .WithDescription("Deletes a secret.")
+                .WithExample(new[] { "secrets", "remove", "KEY1" })
+                ;
+
+            c.AddCommand<SecretsListCommand>("list")
+                .WithAlias("ls")
+                .WithDescription("List all secrets by name.")
+                .WithExample(new[] { "secrets", "list" })
+                ;
+        })
+        ;
 });
 
 return app.Run(args);

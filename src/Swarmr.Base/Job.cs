@@ -36,7 +36,7 @@ public static class Jobs {
     RESULT sm/test/work13
     */
 
-    public static JobConfig Parse(string src) {
+    public static JobConfig Parse(string src, SwarmSecrets secrets) {
 
         var jobid = $"job-{Guid.NewGuid()}";
 
@@ -44,10 +44,18 @@ public static class Jobs {
             .Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(StripComments)
             .Where(line => !string.IsNullOrWhiteSpace(line))
-            .Select(line => line.Replace("{JOBID}", jobid, ignoreCase: true, CultureInfo.InvariantCulture))
+            .Select(ReplaceVariables)
             .Select(TokenizeLine)
             .ToArray()
             ;
+
+        string ReplaceVariables(string line) {
+            line = line.Replace("{JOBID}", jobid, ignoreCase: true, CultureInfo.InvariantCulture);
+            foreach (var (key, value) in secrets.Map) {
+                line = line.Replace("{" + key + "}", value, ignoreCase: true, CultureInfo.InvariantCulture);
+            }
+            return line;
+        }
 
         var setup = ImmutableList<string>.Empty;
         var execute = ImmutableList<ExecuteItem>.Empty;

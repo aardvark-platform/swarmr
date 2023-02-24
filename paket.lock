@@ -2,6 +2,7 @@ STORAGE: NONE
 RESTRICTION: || (== net6.0) (== netstandard2.0)
 NUGET
   remote: https://api.nuget.org/v3/index.json
+    Aardvark.Base.Cryptography (0.2.1)
     Aardvark.Build (1.0.18)
     Spectre.Console (0.46)
       System.Memory (>= 4.5.5)

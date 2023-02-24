@@ -59,7 +59,7 @@ public class JoinCommand : AsyncCommand<JoinCommand.Settings>
             type: NodeType.Worker,
             customRemoteHost: settings.RemoteHost,
             listenPort: settings.ListenPort,
-            customWorkDir: settings.Workdir,
+            customWorkDir: settings.Workdir != null ? new DirectoryInfo(settings.Workdir) : null,
             verbose: settings.Verbose
             );
 

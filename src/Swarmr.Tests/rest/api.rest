@@ -117,3 +117,25 @@ Content-Type: application/json
         }
     }
 }
+
+### set secret
+POST http://localhost:5777/api HTTP/1.1
+Content-Type: application/json
+
+{
+    "type": "SetSecretRequest",
+    "request": {
+        "key": "nugetkey",
+        "value": "b0b58375-e370-477b-9db0-51b1e5235e45"
+    }
+}
+
+### list secrets
+POST http://localhost:5777/api HTTP/1.1
+Content-Type: application/json
+
+{
+    "type": "ListSecretsRequest",
+    "request": {
+    }
+}

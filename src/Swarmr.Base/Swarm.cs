@@ -18,9 +18,14 @@ public class Swarm : ISwarm
 
     private readonly SwarmTaskQueue _localTaskQueue = new();
 
+    private FileInfo SwarmSecretsFile { get; }
+    internal Task<SwarmSecrets> LoadSwarmSecretsAsync() => SwarmSecrets.CreateAsync(SwarmSecretsFile);
+    //internal Task SaveSwarmSecretsAsync(SwarmSecrets newSecrets) => newSecrets.SaveAsync();
+
+    [JsonIgnore]
+    public DirectoryInfo Workdir { get; }
     public string SelfId { get; }
     public string? PrimaryId { get; private set; }
-    public string Workdir { get; }
     public LocalSwarmFiles LocalSwarmFiles { get; }
     public bool Verbose { get; }
 
@@ -140,13 +145,11 @@ public class Swarm : ISwarm
     public static async Task<Swarm> ConnectAsync(
         string? url,
         Node self,
-        string workdir,
+        DirectoryInfo workdir,
         bool verbose,
         CancellationToken ct = default
         )
     {
-        workdir = Path.GetFullPath(workdir);
-
         Swarm? swarm = null;
         if (url != null)
         {
@@ -183,18 +186,18 @@ public class Swarm : ISwarm
         NodeType type,
         string? customRemoteHost,
         int? listenPort,
-        string? customWorkDir,
+        DirectoryInfo? customWorkDir,
         bool verbose
         )
     {
         // (0) Arguments.
         var (remoteHost, remotePort) = SwarmUtils.ParseHost(customRemoteHost);
-        if (string.IsNullOrWhiteSpace(customWorkDir))
+        if (customWorkDir == null)
         {
             var config = await LocalConfig.LoadAsync();
             if (config.Workdir != null)
             {
-                customWorkDir = config.Workdir;
+                customWorkDir = new DirectoryInfo(config.Workdir);
             }
             else
             {
@@ -458,15 +461,15 @@ public class Swarm : ISwarm
         return new(Task: t);
     }
 
-    /// <summary>
-    /// </summary>
     public async Task<SubmitJobResponse> SubmitJobAsync(SubmitJobRequest request)
     {
         if (IAmPrimary)
         {
-            var task = ScheduleJobTask.Create(request.Job);
+            var swarmSecrets = await LoadSwarmSecretsAsync();
+            var jobConfig = Jobs.Parse(request.Job, swarmSecrets);
+            var task = ScheduleJobTask.Create(jobConfig);
             await _localTaskQueue.Enqueue(task);
-            return new(JobId: request.Job.Id);
+            return new(JobId: jobConfig.Id);
         }
         else
         {
@@ -495,6 +498,46 @@ public class Swarm : ISwarm
     {
         var t = SwarmTask.Deserialize(request.Task);
         await t.RunAsync(context: this);
+        return new();
+    }
+
+    public async Task<SetSecretResponse> SetSecretAsync(SetSecretRequest request) {
+        var secrets = await LoadSwarmSecretsAsync();
+        await secrets.Set(key: request.Key, value: request.Value).SaveAsync();
+        return new();
+    }
+
+    public async Task<RemoveSecretResponse> RemoveSecretAsync(RemoveSecretRequest request) {
+        var secrets = await LoadSwarmSecretsAsync();
+        await secrets.Remove(key: request.Key).SaveAsync();
+        return new();
+    }
+
+    public async Task<ListSecretsResponse> ListSecretsAsync(ListSecretsRequest request) {
+        var secrets = await LoadSwarmSecretsAsync();
+        return new(secrets.Map.Keys.ToList());
+    }
+
+    public async Task<UpdateSecretsResponse> UpdateSecretsAsync(UpdateSecretsRequest request) {
+        var localSecrets = await LoadSwarmSecretsAsync();
+        var remoteSecrets = await SwarmSecrets.DecodeAsync(request.Secrets, SwarmSecretsFile);
+
+        if (remoteSecrets.Revision > localSecrets.Revision) {
+            // update
+            await remoteSecrets.SaveAsync();
+        }
+        else if (remoteSecrets.Revision < localSecrets.Revision) {
+            // ignore outdated revision (warn)
+            AnsiConsole.MarkupLine(
+                $"[yellow][[WARNING]][[UpdateSecretsAsync]] " +
+                $"Ignoring outdated revision {remoteSecrets.Revision}. " +
+                $"Local revision is {localSecrets.Revision}.[/]"
+                );
+        }
+        else {
+            // silently ignore same revision
+        }
+
         return new();
     }
 
@@ -575,7 +618,7 @@ public class Swarm : ISwarm
             ImmutableList<Node>.Empty
             );
 
-        public Swarm ToSwarm(Node self, string workdir, bool verbose) => new(
+        public Swarm ToSwarm(Node self, DirectoryInfo workdir, bool verbose) => new(
             self: self,
             workdir: workdir,
             primary: Primary,
@@ -591,33 +634,35 @@ public class Swarm : ISwarm
 
     private readonly Dictionary<string, Node> _nodes = new();
 
-    private Swarm(Node self, string workdir, bool verbose)
+    private Swarm(Node self, DirectoryInfo workdir, bool verbose)
         : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>(), verbose: verbose)
     { }
 
-    private Swarm(Node self, string? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
+    private Swarm(Node self, DirectoryInfo? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
     {
-        Workdir = Path.GetFullPath(workdir ?? Info.DefaultWorkdir);
+        Workdir = workdir ?? new DirectoryInfo(Info.DefaultWorkdir);
         Verbose = verbose;
         PrimaryId = primary;
 
-        var d = new DirectoryInfo(Workdir);
-        if (!d.Exists)
+        if (!Workdir.Exists)
         {
-            AnsiConsole.MarkupLine($"[yellow]created workdir: {d.FullName}[/]");
-            d.Create();
+            AnsiConsole.MarkupLine($"[yellow]created workdir: {Workdir.FullName}[/]");
+            Workdir.Create();
         }
 
         LocalSwarmFiles = new(
-            basedir: Path.Combine(d.FullName, "files"),
+            basedir: Path.Combine(Workdir.FullName, "files"),
             nodeId: self.Id
             );
         self = self.UpsertFiles(LocalSwarmFiles.Files);
+
 
         foreach (var n in nodes) _nodes.Add(n.Id, n);
 
         _nodes[self.Id] = self;
         SelfId = self.Id;
+
+        SwarmSecretsFile = new FileInfo(Path.Combine(Workdir.FullName, ".swarmsecrets"));
     }
 
     private async void StartHouseKeepingAsync(CancellationToken ct = default)

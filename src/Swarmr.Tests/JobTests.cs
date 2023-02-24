@@ -26,6 +26,6 @@ public class JobTests
             RESULT sm/test/work13
             """;
 
-        var job = Jobs.Parse(src);
+        var job = Jobs.Parse(src, SwarmSecrets.Empty);
     }
 }

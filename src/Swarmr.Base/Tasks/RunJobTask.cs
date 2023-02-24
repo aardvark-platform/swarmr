@@ -52,7 +52,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         AnsiConsole.WriteLine($"[RunJobTask] {Job.ToJsonString()}");
 
         // (0) create temporary job directory
-        var jobDir = new DirectoryInfo(Path.Combine(context.Workdir, "runs", Id));
+        var jobDir = new DirectoryInfo(Path.Combine(context.Workdir.FullName, "runs", Id));
         var exeDir = new DirectoryInfo(Path.Combine(jobDir.FullName, "exe"));
         var logDir = new DirectoryInfo(Path.Combine(jobDir.FullName, "logs"));
 

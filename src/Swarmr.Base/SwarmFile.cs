@@ -271,12 +271,12 @@ public class LocalSwarmFiles
                     f.Write(_nodeIdUtf8);
                     f.Flush();
                     lock (_locks) { _locks.Add(logicalName, f); }
-                    AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} ACQUIRED[/]");
+                    //AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} ACQUIRED[/]");
                     break;
                 }
                 catch
                 {
-                    AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} RETRY IN {waitMilliseconds} ms[/]");
+                    //AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} RETRY IN {waitMilliseconds} ms[/]");
                     await Task.Delay(waitMilliseconds, ct);
                     waitMilliseconds = Math.Min(waitMilliseconds * 2, 1000);
                 }
@@ -284,7 +284,7 @@ public class LocalSwarmFiles
         }
         else
         {
-            AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} ACQUIRED (CACHED)[/]");
+            //AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} ACQUIRED (CACHED)[/]");
         }
 
         return new AsyncDisposable(() =>
@@ -297,9 +297,9 @@ public class LocalSwarmFiles
             } 
             catch
             {
-                AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} LOCKFILE DELETE FAILED[/]");
+                //AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} LOCKFILE DELETE FAILED[/]");
             }
-            AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} RELEASED[/]");
+            //AnsiConsole.MarkupLine($"[lime][[LOCK]][[{label}]] {logicalName} RELEASED[/]");
             return Task.CompletedTask;
         });
     }

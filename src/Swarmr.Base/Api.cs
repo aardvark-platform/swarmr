@@ -1,4 +1,5 @@
-﻿using Swarmr.Base.Tasks;
+﻿using Aardvark.Base.Cryptography;
+using Swarmr.Base.Tasks;
 
 namespace Swarmr.Base.Api;
 
@@ -29,11 +30,23 @@ public record IngestFileResponse(IngestFileTask Task);
 public record SubmitTaskRequest(SwarmTask.Dto Task);
 public record SubmitTaskResponse();
 
-public record SubmitJobRequest(JobConfig Job);
+public record SubmitJobRequest(string Job);
 public record SubmitJobResponse(string JobId);
 
 public record RunJobRequest(RunJobTask Job);
 public record RunJobResponse(bool Accepted);
+
+public record SetSecretRequest(string Key, string Value);
+public record SetSecretResponse();
+
+public record RemoveSecretRequest(string Key);
+public record RemoveSecretResponse();
+
+public record ListSecretsRequest();
+public record ListSecretsResponse(IReadOnlyList<string> Secrets);
+
+public record UpdateSecretsRequest(string Secrets);
+public record UpdateSecretsResponse();
 
 public interface ISwarm
 {
@@ -73,7 +86,7 @@ public static class ISwarmExtensions
 
     public static async Task<Swarm> JoinSwarmAsync(this ISwarm client,
         Node self,
-        string workdir,
+        DirectoryInfo workdir,
         bool verbose
         )
     {
@@ -147,7 +160,7 @@ public static class ISwarmExtensions
     }
 
     public static async Task<SubmitJobResponse> SubmitJobAsync(this ISwarm client,
-        JobConfig job
+        string job
         )
     {
         var response = await client.SendAsync<SubmitJobRequest, SubmitJobResponse>(new(
@@ -164,5 +177,34 @@ public static class ISwarmExtensions
             Job: job
             ));
         return response;
+    }
+
+    public static async Task SetSecretAsync(this ISwarm client,
+        string key, string value
+        ) 
+    {
+        await client.SendAsync<SetSecretRequest, SetSecretResponse>(new(key, value));
+    }
+
+    public static async Task RemoveSecretAsync(this ISwarm client,
+        string key
+        ) 
+    {
+        await client.SendAsync<RemoveSecretRequest, RemoveSecretResponse>(new(key));
+    }
+
+    public static async Task<IReadOnlyList<string>> ListSecretsAsync(this ISwarm client
+        ) 
+    {
+        var r = await client.SendAsync<ListSecretsRequest, ListSecretsResponse>(new());
+        return r.Secrets;
+    }
+
+    public static async Task UpdateSecretsAsync(this ISwarm client,
+        SwarmSecrets secrets
+        ) 
+    {
+        var encoded = await secrets.EncodeAsync();
+        await client.SendAsync<UpdateSecretsRequest, UpdateSecretsResponse>(new(encoded));
     }
 }

@@ -43,7 +43,7 @@ public class Server
 
         app.UseStaticFiles(new StaticFileOptions
         {
-            FileProvider = new PhysicalFileProvider(swarm.Workdir),
+            FileProvider = new PhysicalFileProvider(swarm.Workdir.FullName),
             RequestPath = "/static"
         });
 
