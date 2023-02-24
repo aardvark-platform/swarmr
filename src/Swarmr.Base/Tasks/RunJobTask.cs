@@ -120,6 +120,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                         await ExecuteAsync(exe, args, exeDir, stdoutStream, stderrStream);
 
                         stdoutStream.Close();
+                        stderrStream.Close();
                     }
                     catch (Exception e)
                     {
@@ -201,7 +202,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                                 MatchType = MatchType.Simple
                             });
 
-                            var prefixLength = dir.FullName.Length + 1;
+                            var prefixLength = exeDir.FullName.Length + 1;
                             foreach (var file in files)
                             {
                                 var entryName = file.FullName[prefixLength..];
@@ -275,57 +276,56 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         var newProcessStarted = process.Start();
         AnsiConsole.WriteLine($"newProcessStarted = {newProcessStarted}");
 
-        {
-            AnsiConsole.WriteLine($"[STDOUT] attaching");
-            process.OutputDataReceived += (sender, args) =>
-            {
-                try
-                {
-                    var line = args.Data;
-                    if (line == null)
-                    {
-                        AnsiConsole.WriteLine("[STDOUT] EOF");
-                        return;
-                    }
-                    AnsiConsole.WriteLine($"[STDOUT] {line}");
-                    stdoutTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
-                    stdoutTarget.Flush();
+        void outputDataReceived(object sender, DataReceivedEventArgs args) {
+            try {
+                var line = args.Data;
+                if (line == null) {
+                    AnsiConsole.WriteLine("[STDOUT] EOF");
+                    return;
                 }
-                catch (Exception e)
-                {
-                    AnsiConsole.MarkupLine($"[[STDOUT]] [red]{e.Message}[/]");
-                }
-            };
-            process.BeginOutputReadLine();
+                AnsiConsole.WriteLine($"[STDOUT] {line}");
+                stdoutTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
+                stdoutTarget.Flush();
+            }
+            catch (Exception e) {
+                AnsiConsole.MarkupLine($"[[STDOUT]] [red]{e.Message}[/]");
+            }
         }
 
+        AnsiConsole.WriteLine($"[STDOUT] attaching");
+        process.OutputDataReceived += outputDataReceived;
+        process.BeginOutputReadLine();
+
+        void errorDataReceived(object sender, DataReceivedEventArgs args)
         {
-            AnsiConsole.WriteLine($"[STDERR] attaching");
-            process.ErrorDataReceived += (sender, args) =>
-            {
-                try
-                {
-                    var line = args.Data;
-                    if (line == null)
-                    {
-                        AnsiConsole.WriteLine("[STDERR] EOF");
-                        return;
-                    }
-                    AnsiConsole.WriteLine($"[STDERR] {line}");
-                    stderrTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
-                    stderrTarget.Flush();
+            try {
+                var line = args.Data;
+                if (line == null) {
+                    AnsiConsole.WriteLine("[STDERR] EOF");
+                    return;
                 }
-                catch (Exception e)
-                {
-                    AnsiConsole.MarkupLine($"[[STDERR]] [red]{e.Message}[/]");
-                }
-            };
-            process.BeginErrorReadLine();
+                AnsiConsole.WriteLine($"[STDERR] {line}");
+                stderrTarget.Write(Encoding.UTF8.GetBytes(line + '\n'));
+                stderrTarget.Flush();
+            }
+            catch (Exception e) {
+                AnsiConsole.MarkupLine($"[[STDERR]] [red]{e.Message}[/]");
+            }
         }
+
+        AnsiConsole.WriteLine($"[STDERR] attaching");
+        process.ErrorDataReceived += errorDataReceived;
+        process.BeginErrorReadLine();
 
         AnsiConsole.WriteLine($"[{DateTimeOffset.UtcNow}] awaiting exit");
 
         await process.WaitForExitAsync();
+
+        process.CancelOutputRead();
+        process.CancelErrorRead();
+
+        //process.OutputDataReceived -= outputDataReceived;
+        //process.ErrorDataReceived -= errorDataReceived;
 
         if (process.ExitCode == 0)
         {
