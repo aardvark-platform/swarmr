@@ -1,4 +1,5 @@
 using Swarmr.Base;
+using System.Collections.Immutable;
 
 namespace Swarmr.Tests;
 

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.Globalization;
 using static Swarmr.Base.JobConfig;
 
 namespace Swarmr.Base;
@@ -21,8 +22,7 @@ public record JobConfig(
     public record ExecuteItem(string Exe, string Args);
 }
 
-public static class Jobs
-{
+public static class Jobs {
     /*
     SETUP sm/test/exe
     SETUP sm/test/data1
@@ -36,12 +36,15 @@ public static class Jobs
     RESULT sm/test/work13
     */
 
-    public static JobConfig Parse(string src)
-    {
+    public static JobConfig Parse(string src) {
+
+        var jobid = $"job-{Guid.NewGuid()}";
+
         var lines = src
             .Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(StripComments)
             .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => line.Replace("{JOBID}", jobid, ignoreCase: true, CultureInfo.InvariantCulture))
             .Select(TokenizeLine)
             .ToArray()
             ;
@@ -51,20 +54,16 @@ public static class Jobs
         var collect = ImmutableList<string>.Empty;
         string? result = null;
 
-        for (var i = 0; i < lines.Length; i++)
-        {
+        for (var i = 0; i < lines.Length; i++) {
             var (line, tokens) = lines[i];
-            switch (tokens[0].ToLower())
-            {
-                case "setup":
-                    {
+            switch (tokens[0].ToLower()) {
+                case "setup": {
                         if (tokens.Count != 2) throw new Exception();
                         setup = setup.Add(tokens[1]);
                         break;
                     }
 
-                case "execute":
-                    {
+                case "execute": {
                         var x = new ExecuteItem(
                             Exe: lines[++i].line,
                             Args: lines[++i].line
@@ -73,15 +72,13 @@ public static class Jobs
                         break;
                     }
 
-                case "collect":
-                    {
+                case "collect": {
                         if (tokens.Count != 2) throw new Exception();
                         collect = collect.Add(tokens[1]);
                         break;
                     }
 
-                case "result":
-                    {
+                case "result": {
                         if (tokens.Count != 2) throw new Exception();
                         if (result != null) throw new Exception("Result already defined.");
                         result = tokens[1];
@@ -93,7 +90,7 @@ public static class Jobs
         if (result == null) throw new Exception("Result is undefined.");
 
         var job = new JobConfig(
-            Id: $"job-{Guid.NewGuid()}",
+            Id: jobid,
             Setup: setup,
             Execute: execute,
             Collect: collect,
@@ -102,42 +99,35 @@ public static class Jobs
 
         return job;
 
-        static string StripComments(string line)
-        {
+        static string StripComments(string line) {
             line = line.Trim();
             var i = line.IndexOf('#');
             if (i >= 0) line = line[..i];
-            return line;
+            return line.Trim();
         }
 
-        static (string line, ImmutableList<string> tokens) TokenizeLine(string line)
-        {
+        static (string line, ImmutableList<string> tokens) TokenizeLine(string line) {
             var tokens = ImmutableList<string>.Empty;
             var token = "";
             var insideQuotes = false;
-            for (var i = 0; i < line.Length; i++)
-            {
+            for (var i = 0; i < line.Length; i++) {
                 var c = line[i];
 
-                if (char.IsWhiteSpace(c) && token.Length == 0)
-                {
+                if (char.IsWhiteSpace(c) && token.Length == 0) {
                     continue;
                 }
 
-                if (c == '\"')
-                {
+                if (c == '\"') {
                     insideQuotes = !insideQuotes;
                     continue;
                 }
 
-                if (insideQuotes)
-                {
+                if (insideQuotes) {
                     token += c;
                     continue;
                 }
 
-                if (char.IsWhiteSpace(c))
-                {
+                if (char.IsWhiteSpace(c)) {
                     tokens = tokens.Add(token);
                     token = "";
                     continue;
@@ -146,8 +136,7 @@ public static class Jobs
                 token += c;
             }
 
-            if (token.Length > 0)
-            {
+            if (token.Length > 0) {
                 tokens = tokens.Add(token);
             }
 
