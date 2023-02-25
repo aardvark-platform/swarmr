@@ -60,7 +60,7 @@ public record SwarmResponse(string Type, object Response);
 
 public static class ISwarmExtensions
 {
-    private static async Task<RES> SendAsync<REQ, RES>(this ISwarm client, REQ request) where REQ : notnull
+    public static async Task<RES> SendAsync<REQ, RES>(this ISwarm client, REQ request) where REQ : notnull
     {
         var m = new SwarmRequest(
             Type: typeof(REQ).AssemblyQualifiedName ?? throw new Exception(

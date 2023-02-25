@@ -155,7 +155,12 @@ public class Swarm : ISwarm
             // clone the swarm from the node at given URL
             if (verbose) AnsiConsole.WriteLine($"connecting to {url} ...");
             var swarmNode = new NodeHttpClient(url, self);
-            swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir, verbose: verbose);
+
+            // swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir, verbose: verbose);
+            var r = await swarmNode.SendAsync<JoinSwarmRequest, JoinSwarmResponse>(new(Node: self));
+            swarm = r.Swarm.ToSwarm(self: self, workdir: workdir, verbose: verbose);
+            await swarm.UpdateSecretsAsync(r.Swarm.Secrets);
+
             if (verbose) AnsiConsole.WriteLine($"connecting to {url} ... done");
         }
         else
@@ -285,9 +290,6 @@ public class Swarm : ISwarm
                 .Where(n => n.Type != NodeType.Ephemeral)
                 .SendEach(n => n.UpdateNodeAsync(request.Node))
                 ;
-
-            var secrets = await LoadSwarmSecretsAsync();
-            await request.Node.Client.UpdateSecretsAsync(secrets);
         }
         else
         {
@@ -306,7 +308,7 @@ public class Swarm : ISwarm
 
         if (Verbose) _ = Task.Run(PrintNice);
 
-        return new JoinSwarmResponse(Swarm: Dto.FromSwarm(this));
+        return new JoinSwarmResponse(Swarm: await Dto.FromSwarmAsync(this));
     }
 
     public async Task<LeaveSwarmResponse> LeaveSwarmAsync(LeaveSwarmRequest request)
@@ -519,31 +521,7 @@ public class Swarm : ISwarm
     }
 
     public async Task<UpdateSecretsResponse> UpdateSecretsAsync(UpdateSecretsRequest request) {
-        var localSecrets = await LoadSwarmSecretsAsync();
-        var remoteSecrets = await SwarmSecrets.DecodeAsync(request.Secrets, SwarmSecretsFile);
-
-        if (remoteSecrets.Revision > localSecrets.Revision) {
-            // update
-            if (Verbose) AnsiConsole.MarkupLine(
-                $"[lime][[UpdateSecretsAsync]] update revision {localSecrets.Revision} to {remoteSecrets.Revision}[/]"
-                );
-            await remoteSecrets.SaveAsync();
-        }
-        else if (remoteSecrets.Revision < localSecrets.Revision) {
-            // ignore outdated revision (warn)
-            AnsiConsole.MarkupLine(
-                $"[yellow][[WARNING]][[UpdateSecretsAsync]] " +
-                $"Ignoring outdated revision {remoteSecrets.Revision}. " +
-                $"Local revision is {localSecrets.Revision}.[/]"
-                );
-        }
-        else {
-            if (Verbose) AnsiConsole.MarkupLine(
-                $"[lime][[UpdateSecretsAsync]] silently ignore same revision {remoteSecrets.Revision}[/]"
-                );
-            // silently ignore same revision
-        }
-
+        await UpdateSecretsAsync(request.Secrets);
         return new();
     }
 
@@ -616,12 +594,14 @@ public class Swarm : ISwarm
 
     public record Dto(
         string? Primary,
-        IReadOnlyList<Node> Nodes
+        IReadOnlyList<Node> Nodes,
+        string Secrets
         )
     {
         public static readonly Dto Empty = new(
             Primary: null,
-            Nodes: ImmutableList<Node>.Empty
+            Nodes: ImmutableList<Node>.Empty,
+            Secrets: null!
             );
 
         public Swarm ToSwarm(Node self, DirectoryInfo workdir, bool verbose) => new(
@@ -632,10 +612,15 @@ public class Swarm : ISwarm
             verbose: verbose
             );
 
-        public static Dto FromSwarm(Swarm swarm) => new(
-            Primary: swarm.PrimaryId,
-            Nodes: swarm.Nodes
-            );
+        public static async Task<Dto> FromSwarmAsync(Swarm swarm)
+        {
+            var secrets = await swarm.LoadSwarmSecretsAsync();
+            return new(
+                Primary: swarm.PrimaryId,
+                Nodes: swarm.Nodes,
+                Secrets: await secrets.EncodeAsync()
+                );
+        }
     }
 
     private readonly Dictionary<string, Node> _nodes = new();
@@ -915,6 +900,33 @@ public class Swarm : ISwarm
         }
 
         return changed;
+    }
+
+    private async Task UpdateSecretsAsync(string secrets) {
+        var localSecrets = await LoadSwarmSecretsAsync();
+        var remoteSecrets = await SwarmSecrets.DecodeAsync(secrets, SwarmSecretsFile);
+
+        if (remoteSecrets.Revision > localSecrets.Revision) {
+            // update
+            if (Verbose) AnsiConsole.MarkupLine(
+                $"[lime][[UpdateSecretsAsync]] update revision {localSecrets.Revision} to {remoteSecrets.Revision}[/]"
+                );
+            await remoteSecrets.SaveAsync();
+        }
+        else if (remoteSecrets.Revision < localSecrets.Revision) {
+            // ignore outdated revision (warn)
+            AnsiConsole.MarkupLine(
+                $"[yellow][[WARNING]][[UpdateSecretsAsync]] " +
+                $"Ignoring outdated revision {remoteSecrets.Revision}. " +
+                $"Local revision is {localSecrets.Revision}.[/]"
+                );
+        }
+        else {
+            if (Verbose) AnsiConsole.MarkupLine(
+                $"[lime][[UpdateSecretsAsync]] silently ignore same revision {remoteSecrets.Revision}[/]"
+                );
+            // silently ignore same revision
+        }
     }
 
     #endregion
