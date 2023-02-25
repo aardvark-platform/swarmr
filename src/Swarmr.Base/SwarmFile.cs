@@ -118,9 +118,11 @@ public class LocalSwarmFiles
 
     public IEnumerable<SwarmFile> Files => List();
 
-    public IEnumerable<SwarmFile> List()
+    public IEnumerable<SwarmFile> List(string? path = null)
     {
-        var xs = _basedir
+        var dir = path != null ? new DirectoryInfo(Path.Combine(_basedir.FullName, path)) : _basedir;
+
+        var xs = dir
             .EnumerateFiles(SwarmFile.METAFILE_NAME, SearchOption.AllDirectories)
             .ToList();
 

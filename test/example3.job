@@ -9,5 +9,5 @@ COLLECT Sum.exe
 #COLLECT logs/log.txt
 COLLECT logs
 
-RESULT "sm/test/bla/{JOBID}"
+RESULT "sm/test/results/{JOBID}"
 

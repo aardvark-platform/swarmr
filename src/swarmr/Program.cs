@@ -33,9 +33,16 @@ app.Configure(config =>
                 );
 
             c.AddCommand<FilesListCommand>("list")
-                  .WithDescription("List swarm files.")
-                  .WithExample(new[] { "files", "list"  })
-                  ;
+                .WithAlias("ls")
+                .WithDescription("List swarm files.")
+                .WithExample(new[] { "files", "list"  })
+                ;
+
+            c.AddCommand<FilesExtractCommand>("extract")
+                .WithAlias("x")
+                .WithDescription("Extracts swarm files to local directory.")
+                .WithExample(new[] { "files", "extract", "my/swarm/path", "C:/Data" })
+                ;
         })
         ;
 
@@ -47,9 +54,9 @@ app.Configure(config =>
                 );
 
             c.AddCommand<JobsSubmitCommand>("submit")
-                  .WithDescription("Submits a new job to the swarm.")
-                  .WithExample(new[] {"jobs", "submit", "./compute42.job"})
-                  ;
+                .WithDescription("Submits a new job to the swarm.")
+                .WithExample(new[] {"jobs", "submit", "./compute42.job"})
+                ;
         })
         ;
 
