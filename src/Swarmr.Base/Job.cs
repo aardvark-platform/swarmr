@@ -22,20 +22,31 @@ public record JobConfig(
     public record ExecuteItem(string Exe, string Args);
 }
 
-public static class Jobs {
-    /*
-    SETUP sm/test/exe
-    SETUP sm/test/data1
+/// <summary>
+/// Represents a running job.
+/// </summary>
+/// <param name="Config">Job description.</param>
+/// <param name="WorkerNodeId">Job runs on this node.</param>
+public record ActiveJob(
+    JobConfig Config,
+    DateTimeOffset Started,
+    DateTimeOffset? Completed,
+    string WorkerNodeId
+    )
+{
+    /// <summary>
+    /// Job id.
+    /// </summary>
+    public string Id => Config.Id;
 
-    EXECUTE 
-      Sum.exe   # exe
-      work 5    # args
+    /// <summary>
+    /// Final run duration, or null if still running.
+    /// </summary>
+    public TimeSpan? Duration => Completed - Started;
+}
 
-    COLLECT .
-
-    RESULT sm/test/work13
-    */
-
+public static class Jobs 
+{
     public static JobConfig Parse(string src, SwarmSecrets secrets) {
 
         var jobid = $"job-{Guid.NewGuid()}";

@@ -12,10 +12,10 @@ public record SyncSwarmFilesTask(string Id, Node Other) : ISwarmTask
         Other: other
         );
 
-    public async Task RunAsync(Swarm context)
+    public async Task RunAsync(Swarm context) 
     {
-        // we ignore ephemeral source nodes as they disappear quickly ...
-        if (Other.Type == NodeType.Ephemeral) return;
+        // we don't sync files from or to ephemeral nodes, as they disapeear quickly ...
+        if (Other.Type == NodeType.Ephemeral || context.Self.Type == NodeType.Ephemeral) return;
 
         foreach (var otherSwarmFile in Other.Files.Values)
         {

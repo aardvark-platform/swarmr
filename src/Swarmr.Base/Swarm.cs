@@ -18,9 +18,28 @@ public class Swarm : ISwarm
 
     private readonly SwarmTaskQueue _localTaskQueue = new();
 
+    #region secrets
+    
     private FileInfo SwarmSecretsFile { get; }
     internal Task<SwarmSecrets> LoadSwarmSecretsAsync() => SwarmSecrets.CreateAsync(SwarmSecretsFile);
-   
+
+    #endregion
+
+    #region active jobs
+
+    private Dictionary<string, ActiveJob> _activeJobs = new();
+    public void UpsertActiveJob(ActiveJob x) {
+        lock (_activeJobs) _activeJobs[x.Id] = x;
+    }
+    public void RemoveActiveJob(string jobId) {
+        lock (_activeJobs) _activeJobs.Remove(jobId);
+    }
+    public bool TryGetActiveJob(string jobId, [NotNullWhen(true)] out ActiveJob? job) {
+        lock (_activeJobs) return _activeJobs.TryGetValue(jobId, out job);
+    }
+
+    #endregion
+
     [JsonIgnore]
     public DirectoryInfo Workdir { get; }
     public string SelfId { get; }
@@ -372,19 +391,6 @@ public class Swarm : ISwarm
 
     public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
     {
-        // ignore external updates for Self
-        //if (request.Node.Id == SelfId) return new();
-
-        var stopwatch = Stopwatch.StartNew();
-        
-        //void printElapsed(string checkpoint)
-        //{
-        //    stopwatch.Stop();
-        //    var x = stopwatch.Elapsed;
-        //    _ = Task.Run(() => AnsiConsole.WriteLine($"[DEBUG][UpdateNodeAsync][{checkpoint}] elapsed {x}"));
-        //    stopwatch.Start();
-        //}
-
         if (IAmPrimary)
         {
             // I am the primary node, so it is my duty to
@@ -394,18 +400,11 @@ public class Swarm : ISwarm
                 .Where(n => n.Type != NodeType.Ephemeral)
                 .SendEach(n => n.UpdateNodeAsync(request.Node))
                 ;
-
-            //printElapsed("i am primary");
         }
-
 
         UpsertNode(request.Node);
 
-        //printElapsed("upsert node");
-
         if (Verbose) _ = Task.Run(PrintNice);
-
-        //printElapsed("print nice");
 
         // sync swarm files
         if (request.Node.Id != Self.Id && request.Node.Hostname != Self.Hostname)
@@ -415,11 +414,7 @@ public class Swarm : ISwarm
                 Other: request.Node
                 );
             await _localTaskQueue.Enqueue(task);
-
-            //printElapsed("enqueue SyncSwarmFilesTask");
         }
-
-        //printElapsed("TOTAL");
 
         return new();
     }
@@ -539,6 +534,35 @@ public class Swarm : ISwarm
     {
         await UpdateSecretsAsync(request.Secrets);
         return new();
+    }
+
+    public Task<UpsertActiveJobResponse> UpsertActiveJobAsync(UpsertActiveJobRequest request)
+    {
+        if (Verbose) AnsiConsole.MarkupLine(
+            $"[lime][[UpsertActiveJobAsync]] upsert active job {request.ToJsonString().EscapeMarkup()}[/]"
+            );
+
+        UpsertActiveJob(request.ActiveJob);
+
+        return Task.FromResult(new UpsertActiveJobResponse());
+    }
+
+    public Task<RemoveActiveJobResponse> RemoveActiveJobAsync(RemoveActiveJobRequest request) 
+    {
+        if (Verbose) AnsiConsole.MarkupLine(
+            $"[lime][[RemoveActiveJobAsync]] remove active job {request.ToJsonString().EscapeMarkup()}[/]"
+            );
+
+        RemoveActiveJob(request.JobId);
+
+        return Task.FromResult(new RemoveActiveJobResponse());
+    }
+
+    public Task<ListActiveJobsResponse> ListActiveJobsAsync(ListActiveJobsRequest request) {
+
+        List<ActiveJob> xs;
+        lock (_activeJobs) xs = _activeJobs.Values.ToList();
+        return Task.FromResult(new ListActiveJobsResponse(xs));
     }
 
     #endregion

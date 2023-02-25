@@ -49,6 +49,15 @@ public record ListSecretsResponse(IReadOnlyList<string> Secrets);
 public record UpdateSecretsRequest(string Secrets);
 public record UpdateSecretsResponse();
 
+public record UpsertActiveJobRequest(ActiveJob ActiveJob);
+public record UpsertActiveJobResponse();
+
+public record RemoveActiveJobRequest(string JobId);
+public record RemoveActiveJobResponse();
+
+public record ListActiveJobsRequest();
+public record ListActiveJobsResponse(IReadOnlyList<ActiveJob> ActiveJobs);
+
 public interface ISwarm
 {
     Node? Self { get; }
@@ -207,5 +216,26 @@ public static class ISwarmExtensions
     {
         var encoded = await secrets.EncodeAsync();
         await client.SendAsync<UpdateSecretsRequest, UpdateSecretsResponse>(new(encoded));
+    }
+
+    public static async Task UpsertActiveJobAsync(this ISwarm client,
+        ActiveJob activeJob
+        ) 
+    {
+        await client.SendAsync<UpsertActiveJobRequest, UpsertActiveJobResponse>(new(activeJob));
+    }
+
+    public static async Task RemoveActiveJobAsync(this ISwarm client,
+        string jobId
+        ) 
+    {
+        await client.SendAsync<RemoveActiveJobRequest, RemoveActiveJobResponse>(new(jobId));
+    }
+
+    public static async Task<IReadOnlyList<ActiveJob>> ListActiveJobsAsync(this ISwarm client
+        ) 
+    {
+        var r = await client.SendAsync<ListActiveJobsRequest, ListActiveJobsResponse>(new());
+        return r.ActiveJobs;
     }
 }

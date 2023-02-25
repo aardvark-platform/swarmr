@@ -31,8 +31,15 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         ////////////////////////////////
         // process job
         _ = ProcessJobAsync(context)
-            .ContinueWith(async t =>
-            {
+            .ContinueWith(async t => {
+                ////////////////////////////////
+                // remove active job
+                context.RemoveActiveJob(Job.Id);
+                context.Others
+                    .Where(n => n.Type != NodeType.Ephemeral)
+                    .SendEach(swarm => swarm.RemoveActiveJobAsync(Job.Id))
+                    ;
+
                 ////////////////////////////////
                 // announce idle
                 var newSelf = context.UpsertNode(context.Self with
@@ -43,6 +50,20 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
                 await context.Primary.Client.UpdateNodeAsync(newSelf);
                 AnsiConsole.MarkupLine($"[lime] updated Self.Status to {context.Self.Status}[/]");
             });
+
+        ////////////////////////////////
+        // register/announce active job
+        var activeJob = new ActiveJob(
+            Config: Job,
+            Started: DateTimeOffset.UtcNow,
+            Completed: null,
+            WorkerNodeId: context.SelfId
+            );
+        context.UpsertActiveJob(activeJob);
+        context.Others
+            .Where(n => n.Type != NodeType.Ephemeral)
+            .SendEach(swarm => swarm.UpsertActiveJobAsync(activeJob))
+            ;
     }
 
     private async Task ProcessJobAsync(Swarm context)

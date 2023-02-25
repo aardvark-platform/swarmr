@@ -139,3 +139,13 @@ Content-Type: application/json
     "request": {
     }
 }
+
+### list active jobs
+POST http://localhost:5777/api HTTP/1.1
+Content-Type: application/json
+
+{
+    "type": "ListActiveJobsRequest",
+    "request": {
+    }
+}
