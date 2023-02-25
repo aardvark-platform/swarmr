@@ -529,12 +529,14 @@ public class Swarm : ISwarm
         return new();
     }
 
-    public async Task<ListSecretsResponse> ListSecretsAsync(ListSecretsRequest request) {
+    public async Task<ListSecretsResponse> ListSecretsAsync(ListSecretsRequest request) 
+    {
         var secrets = await LoadSwarmSecretsAsync();
         return new(secrets.Map.Keys.ToList());
     }
 
-    public async Task<UpdateSecretsResponse> UpdateSecretsAsync(UpdateSecretsRequest request) {
+    public async Task<UpdateSecretsResponse> UpdateSecretsAsync(UpdateSecretsRequest request) 
+    {
         await UpdateSecretsAsync(request.Secrets);
         return new();
     }
