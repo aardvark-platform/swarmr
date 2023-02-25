@@ -503,15 +503,29 @@ public class Swarm : ISwarm
         return new();
     }
 
-    public async Task<SetSecretResponse> SetSecretAsync(SetSecretRequest request) {
+    public async Task<SetSecretResponse> SetSecretAsync(SetSecretRequest request) 
+    {
         var secrets = await LoadSwarmSecretsAsync();
-        await secrets.Set(key: request.Key, value: request.Value).SaveAsync();
+        secrets = await secrets.Set(key: request.Key, value: request.Value).SaveAsync();
+
+        Others
+            .Where(n => n.Type != NodeType.Ephemeral)
+            .SendEach(n => n.UpdateSecretsAsync(secrets))
+            ;
+
         return new();
     }
 
-    public async Task<RemoveSecretResponse> RemoveSecretAsync(RemoveSecretRequest request) {
+    public async Task<RemoveSecretResponse> RemoveSecretAsync(RemoveSecretRequest request) 
+    {
         var secrets = await LoadSwarmSecretsAsync();
-        await secrets.Remove(key: request.Key).SaveAsync();
+        secrets = await secrets.Remove(key: request.Key).SaveAsync();
+
+        Others
+            .Where(n => n.Type != NodeType.Ephemeral)
+            .SendEach(n => n.UpdateSecretsAsync(secrets))
+            ;
+
         return new();
     }
 
