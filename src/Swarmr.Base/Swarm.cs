@@ -20,8 +20,7 @@ public class Swarm : ISwarm
 
     private FileInfo SwarmSecretsFile { get; }
     internal Task<SwarmSecrets> LoadSwarmSecretsAsync() => SwarmSecrets.CreateAsync(SwarmSecretsFile);
-    //internal Task SaveSwarmSecretsAsync(SwarmSecrets newSecrets) => newSecrets.SaveAsync();
-
+   
     [JsonIgnore]
     public DirectoryInfo Workdir { get; }
     public string SelfId { get; }
@@ -283,10 +282,12 @@ public class Swarm : ISwarm
             UpsertNode(request.Node);
 
             Others
-                //.Except(nodeWhoWantsToJoin)
                 .Where(n => n.Type != NodeType.Ephemeral)
                 .SendEach(n => n.UpdateNodeAsync(request.Node))
                 ;
+
+            var secrets = await LoadSwarmSecretsAsync();
+            await request.Node.Client.UpdateSecretsAsync(secrets);
         }
         else
         {
@@ -306,7 +307,6 @@ public class Swarm : ISwarm
         if (Verbose) _ = Task.Run(PrintNice);
 
         return new JoinSwarmResponse(Swarm: Dto.FromSwarm(this));
-        //return new JoinSwarmResponse(Swarm: Dto.Empty);
     }
 
     public async Task<LeaveSwarmResponse> LeaveSwarmAsync(LeaveSwarmRequest request)
@@ -524,6 +524,9 @@ public class Swarm : ISwarm
 
         if (remoteSecrets.Revision > localSecrets.Revision) {
             // update
+            if (Verbose) AnsiConsole.MarkupLine(
+                $"[lime][[UpdateSecretsAsync]] update revision {localSecrets.Revision} to {remoteSecrets.Revision}[/]"
+                );
             await remoteSecrets.SaveAsync();
         }
         else if (remoteSecrets.Revision < localSecrets.Revision) {
@@ -535,6 +538,9 @@ public class Swarm : ISwarm
                 );
         }
         else {
+            if (Verbose) AnsiConsole.MarkupLine(
+                $"[lime][[UpdateSecretsAsync]] silently ignore same revision {remoteSecrets.Revision}[/]"
+                );
             // silently ignore same revision
         }
 
@@ -615,7 +621,7 @@ public class Swarm : ISwarm
     {
         public static readonly Dto Empty = new(
             Primary: null,
-            ImmutableList<Node>.Empty
+            Nodes: ImmutableList<Node>.Empty
             );
 
         public Swarm ToSwarm(Node self, DirectoryInfo workdir, bool verbose) => new(

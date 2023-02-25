@@ -1,4 +1,5 @@
 ﻿using Aardvark.Base.Cryptography;
+using Spectre.Console;
 using Swarmr.Base.Tasks;
 
 namespace Swarmr.Base.Api;
