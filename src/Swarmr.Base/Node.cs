@@ -28,7 +28,8 @@ public record Node(
     NodeStatus Status
     )
 {
-    public TimeSpan Ago => DateTimeOffset.UtcNow - LastSeen;
+    public TimeSpan Uptime => DateTimeOffset.UtcNow - Created;
+    public TimeSpan SeenAgo => DateTimeOffset.UtcNow - LastSeen;
 
     public string ConnectUrl => $"http://{Hostname}:{Port}";
 

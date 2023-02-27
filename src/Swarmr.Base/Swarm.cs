@@ -1,9 +1,11 @@
-﻿using Spectre.Console;
+﻿using Aardvark.Base.Cryptography;
+using Spectre.Console;
 using Swarmr.Base.Api;
 using Swarmr.Base.Tasks;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 
@@ -16,7 +18,7 @@ public class Swarm : ISwarm
     public static readonly TimeSpan HANDLER_WARN_DURATION = TimeSpan.FromSeconds(0.1);
     public const string DEFAULT_WORKDIR = ".swarmr";
 
-    private readonly SwarmTaskQueue _localTaskQueue = new();
+    internal readonly SwarmTaskQueue LocalTaskQueue = new();
 
     #region secrets
     
@@ -27,16 +29,7 @@ public class Swarm : ISwarm
 
     #region active jobs
 
-    private Dictionary<string, ActiveJob> _activeJobs = new();
-    public void UpsertActiveJob(ActiveJob x) {
-        lock (_activeJobs) _activeJobs[x.Id] = x;
-    }
-    public void RemoveActiveJob(string jobId) {
-        lock (_activeJobs) _activeJobs.Remove(jobId);
-    }
-    public bool TryGetActiveJob(string jobId, [NotNullWhen(true)] out ActiveJob? job) {
-        lock (_activeJobs) return _activeJobs.TryGetValue(jobId, out job);
-    }
+    public JobPool JobPool { get; }
 
     #endregion
 
@@ -120,7 +113,7 @@ public class Swarm : ISwarm
                 new Markup(n.Port.ToString()),
                 new Markup(n.Status.ToString().ToLower()),
                 new Markup(n.Type.ToString().ToLower()),
-                new Markup($"{n.Ago.TotalSeconds:0.0} [[s]]").Justify(Justify.Right)
+                new Markup($"{n.SeenAgo.TotalSeconds:0.0} [[s]]").Justify(Justify.Right)
                 );
         }
 
@@ -142,7 +135,7 @@ public class Swarm : ISwarm
             var sw = Stopwatch.StartNew();
             await Task.Delay(delay);
             sw.Stop(); if (Math.Abs(sw.Elapsed.TotalSeconds - delay.TotalSeconds) > 0.1) Debugger.Break();
-            await _localTaskQueue.Enqueue(task);
+            await LocalTaskQueue.Enqueue(task);
         }
         catch (Exception e)
         {
@@ -175,10 +168,11 @@ public class Swarm : ISwarm
             if (verbose) AnsiConsole.WriteLine($"connecting to {url} ...");
             var swarmNode = new NodeHttpClient(url, self);
 
-            // swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir, verbose: verbose);
-            var r = await swarmNode.SendAsync<JoinSwarmRequest, JoinSwarmResponse>(new(Node: self));
-            swarm = r.Swarm.ToSwarm(self: self, workdir: workdir, verbose: verbose);
-            await swarm.UpdateSecretsAsync(r.Swarm.Secrets);
+            swarm = await swarmNode.JoinSwarmAsync(self, workdir: workdir, verbose: verbose);
+
+            //await swarmNode.SendAsync<JoinSwarmRequest, JoinSwarmResponse>(new(Node: self));
+            //swarm = r.Swarm.ToSwarm(self: self, workdir: workdir, verbose: verbose);
+            //await swarm.UpdateSecretsAsync(r.Swarm.Secrets);
 
             if (verbose) AnsiConsole.WriteLine($"connecting to {url} ... done");
         }
@@ -193,7 +187,7 @@ public class Swarm : ISwarm
         foreach (var n in swarm.Others)
         {
             var task = SyncSwarmFilesTask.Create(n);
-            await swarm._localTaskQueue.Enqueue(task);
+            await swarm.LocalTaskQueue.Enqueue(task);
         }
 
         // start housekeeping (background)
@@ -297,7 +291,9 @@ public class Swarm : ISwarm
     // message handlers should execute very fast
     // (if necessary enqueue a swarm task and send asynchronous reply)
 
-    public async Task<JoinSwarmResponse> JoinSwarmAsync(JoinSwarmRequest request)
+    #region node messages
+
+    private async Task<JoinSwarmResponse> HandleJoinSwarmAsync(JoinSwarmRequest request)
     {
         if (IAmPrimary)
         {
@@ -330,7 +326,7 @@ public class Swarm : ISwarm
         return new JoinSwarmResponse(Swarm: await Dto.FromSwarmAsync(this));
     }
 
-    public async Task<LeaveSwarmResponse> LeaveSwarmAsync(LeaveSwarmRequest request)
+    private async Task<LeaveSwarmResponse> HandleLeaveSwarmAsync(LeaveSwarmRequest request)
     {
         if (ExistsNode(request.Node))
         {
@@ -341,8 +337,7 @@ public class Swarm : ISwarm
             {
                 // notify all nodes of newly joined node ...
                 Others
-                    .Except(request.Node)
-                    .Where(n => n.Type != NodeType.Ephemeral)
+                    .Except(request.Node, exceptEphemeral: true)
                     .SendEach(n => n.LeaveSwarmAsync(request.Node))
                     ;
             }
@@ -364,7 +359,7 @@ public class Swarm : ISwarm
         return new();
     }
 
-    public Task<HeartbeatResponse> HeartbeatAsync(HeartbeatRequest request)
+    private Task<HeartbeatResponse> HandleHeartbeatAsync(HeartbeatRequest request)
     {
         lock (_nodes)
         {
@@ -381,7 +376,7 @@ public class Swarm : ISwarm
         return Task.FromResult(response);
     }
 
-    public Task<PingResponse> PingAsync(PingRequest request)
+    private Task<PingResponse> HandlePingAsync(PingRequest request)
     {
         if (request.Sender != null) UpsertNode(request.Sender);
         var newSelf = UpsertNode(Self with { LastSeen = DateTimeOffset.UtcNow });
@@ -389,15 +384,12 @@ public class Swarm : ISwarm
         return Task.FromResult(response);
     }
 
-    public async Task<UpdateNodeResponse> UpdateNodeAsync(UpdateNodeRequest request)
+    private async Task<UpdateNodeResponse> HandleUpdateNodeAsync(UpdateNodeRequest request)
     {
         if (IAmPrimary)
         {
-            // I am the primary node, so it is my duty to
-            // inform all others about this new member
             Others
-                .Except(request.Node)
-                .Where(n => n.Type != NodeType.Ephemeral)
+                .Except(request.Node, exceptEphemeral: true)
                 .SendEach(n => n.UpdateNodeAsync(request.Node))
                 ;
         }
@@ -413,13 +405,13 @@ public class Swarm : ISwarm
                 Id: Guid.NewGuid().ToString(),
                 Other: request.Node
                 );
-            await _localTaskQueue.Enqueue(task);
+            await LocalTaskQueue.Enqueue(task);
         }
 
         return new();
     }
 
-    public Task<RemoveNodesResponse> RemoveNodesAsync(RemoveNodesRequest request)
+    private Task<RemoveNodesResponse> HandleRemoveNodesAsync(RemoveNodesRequest request)
     {
         foreach (var id in request.NodeIds)
         {
@@ -428,11 +420,20 @@ public class Swarm : ISwarm
 
         if (request.NodeIds.Count > 0) PrintNice();
 
-        var response = new RemoveNodesResponse();
-        return Task.FromResult(response);
+        JobPool.NotifyLostWorkerNodes(this, request.NodeIds);
+
+        if (IAmPrimary) 
+        {
+            Others
+                .Except(request.Sender, exceptEphemeral: true)
+                .SendEach(async n => await n.RemoveNodesAsync(Self, request.NodeIds))
+                ;
+        }
+
+        return Task.FromResult(new RemoveNodesResponse());
     }
 
-    public async Task<GetFailoverNomineeResponse> GetFailoverNomineeAsync(GetFailoverNomineeRequest request)
+    private async Task<GetFailoverNomineeResponse> HandleGetFailoverNomineeAsync(GetFailoverNomineeRequest request)
     {
         // there seems to be an ongoing failover election
 
@@ -451,21 +452,45 @@ public class Swarm : ISwarm
         return new(Nominee: nominee);
     }
 
-    public async Task<IngestFileResponse> IngestFileAsync(IngestFileRequest request)
+    #endregion
+
+    #region swarm file messages
+
+    private async Task<IngestFileResponse> HandleIngestFileAsync(IngestFileRequest request)
     {
         var t = IngestFileTask.Create(request);
-        await _localTaskQueue.Enqueue(t);
+        await LocalTaskQueue.Enqueue(t);
         return new(Task: t);
     }
 
-    public async Task<SubmitJobResponse> SubmitJobAsync(SubmitJobRequest request)
+    #endregion
+
+    #region swarm task messages
+
+    private async Task<SubmitTaskResponse> HandleSubmitTaskAsync(SubmitTaskRequest request) {
+        var t = SwarmTask.Deserialize(request.Task);
+        await t.RunAsync(context: this);
+        return new();
+    }
+
+    #endregion
+
+    #region swarm jobs messages
+
+    private async Task<SubmitJobResponse> HandleSubmitJobAsync(SubmitJobRequest request)
     {
         if (IAmPrimary)
         {
             var swarmSecrets = await LoadSwarmSecretsAsync();
             var jobConfig = Jobs.Parse(request.Job, swarmSecrets);
-            var task = ScheduleJobTask.Create(jobConfig);
-            await _localTaskQueue.Enqueue(task);
+
+            var job = Job.Create(jobConfig);
+            JobPool.UpsertJob(job);
+
+            await Primary.Client.UpsertJobAsync(job);
+
+            var scheduleJobTask = ScheduleJobTask.Create(job);
+            await LocalTaskQueue.Enqueue(scheduleJobTask);
             return new(JobId: jobConfig.Id);
         }
         else
@@ -478,11 +503,11 @@ public class Swarm : ISwarm
         }
     }
 
-    public async Task<RunJobResponse> RunJobAsync(RunJobRequest request)
+    private async Task<RunJobResponse> HandleRunJobAsync(RunJobRequest request)
     {
         if (Self.Type == NodeType.Worker && Self.Status == NodeStatus.Idle)
         {
-            await _localTaskQueue.Enqueue(request.Job);
+            await LocalTaskQueue.Enqueue(request.Job);
             return new(Accepted: true);
         }
         else
@@ -491,15 +516,48 @@ public class Swarm : ISwarm
         }
     }
 
-    public async Task<SubmitTaskResponse> SubmitTaskAsync(SubmitTaskRequest request)
+    private Task<UpsertJobResponse> HandleUpsertJobAsync(UpsertJobRequest request)
     {
-        var t = SwarmTask.Deserialize(request.Task);
-        await t.RunAsync(context: this);
-        return new();
+        AnsiConsole.MarkupLine(
+            $"[lime][[UpsertActiveJobAsync]] upsert job {request.ToJsonString().EscapeMarkup()}[/]"
+            );
+
+        JobPool.UpsertJob(request.Job);
+
+        if (IAmPrimary) 
+        {
+            Others
+                .Where(n => n.Type != NodeType.Ephemeral)
+                .Except(request.SenderNodeId)
+                .SendEach(async n => await n.UpsertJobAsync(request.Job))
+                ;
+        }
+
+        return Task.FromResult(new UpsertJobResponse());
     }
 
-    public async Task<SetSecretResponse> SetSecretAsync(SetSecretRequest request) 
+    private Task<RemoveJobResponse> HandleRemoveJobAsync(RemoveJobRequest request) 
     {
+        if (Verbose) AnsiConsole.MarkupLine(
+            $"[lime][[RemoveActiveJobAsync]] remove job {request.ToJsonString().EscapeMarkup()}[/]"
+            );
+
+        JobPool.RemoveJob(request.JobId);
+
+        return Task.FromResult(new RemoveJobResponse());
+    }
+
+    private Task<ListJobsResponse> HandleListJobsAsync(ListJobsRequest request) {
+
+        var result = new ListJobsResponse(JobPool.Jobs);
+        return Task.FromResult(result);
+    }
+
+    #endregion
+
+    #region swarm secrets messages
+
+    private async Task<SetSecretResponse> HandleSetSecretAsync(SetSecretRequest request) {
         var secrets = await LoadSwarmSecretsAsync();
         secrets = await secrets.Set(key: request.Key, value: request.Value).SaveAsync();
 
@@ -511,8 +569,7 @@ public class Swarm : ISwarm
         return new();
     }
 
-    public async Task<RemoveSecretResponse> RemoveSecretAsync(RemoveSecretRequest request) 
-    {
+    private async Task<RemoveSecretResponse> HandleRemoveSecretAsync(RemoveSecretRequest request) {
         var secrets = await LoadSwarmSecretsAsync();
         secrets = await secrets.Remove(key: request.Key).SaveAsync();
 
@@ -524,48 +581,19 @@ public class Swarm : ISwarm
         return new();
     }
 
-    public async Task<ListSecretsResponse> ListSecretsAsync(ListSecretsRequest request) 
-    {
+    private async Task<ListSecretsResponse> HandleListSecretsAsync(ListSecretsRequest request) {
         var secrets = await LoadSwarmSecretsAsync();
         return new(secrets.Map.Keys.ToList());
     }
 
-    public async Task<UpdateSecretsResponse> UpdateSecretsAsync(UpdateSecretsRequest request) 
-    {
+    private async Task<UpdateSecretsResponse> HandleUpdateSecretsAsync(UpdateSecretsRequest request) {
         await UpdateSecretsAsync(request.Secrets);
         return new();
     }
 
-    public Task<UpsertActiveJobResponse> UpsertActiveJobAsync(UpsertActiveJobRequest request)
-    {
-        if (Verbose) AnsiConsole.MarkupLine(
-            $"[lime][[UpsertActiveJobAsync]] upsert active job {request.ToJsonString().EscapeMarkup()}[/]"
-            );
-
-        UpsertActiveJob(request.ActiveJob);
-
-        return Task.FromResult(new UpsertActiveJobResponse());
-    }
-
-    public Task<RemoveActiveJobResponse> RemoveActiveJobAsync(RemoveActiveJobRequest request) 
-    {
-        if (Verbose) AnsiConsole.MarkupLine(
-            $"[lime][[RemoveActiveJobAsync]] remove active job {request.ToJsonString().EscapeMarkup()}[/]"
-            );
-
-        RemoveActiveJob(request.JobId);
-
-        return Task.FromResult(new RemoveActiveJobResponse());
-    }
-
-    public Task<ListActiveJobsResponse> ListActiveJobsAsync(ListActiveJobsRequest request) {
-
-        List<ActiveJob> xs;
-        lock (_activeJobs) xs = _activeJobs.Values.ToList();
-        return Task.FromResult(new ListActiveJobsResponse(xs));
-    }
-
     #endregion
+
+    #endregion // ISwarm message handlers
 
     #region ISwarm
 
@@ -581,38 +609,39 @@ public class Swarm : ISwarm
                 $"Error 51d5d721-e588-4785-acf1-b0dab351119e."
                 );
 
-        if (!_handlerCache.TryGetValue(request.Type, out var handler))
+        Func<object, Task<SwarmResponse>>? handler;
+        lock (_handlerCache) 
         {
+            if (!_handlerCache.TryGetValue(request.Type, out handler)) {
 
-            var methods = typeof(Swarm).GetMethods();
-            var method = methods.SingleOrDefault(info =>
-                {
+                var methods = typeof(Swarm).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic);
+                var method = methods.SingleOrDefault(info => {
                     var ps = info.GetParameters();
                     if (ps.Length != 1) return false;
                     return ps[0].ParameterType == requestType;
-                }) 
-                ?? throw new Exception(
-                    $"Failed to find handler for request type \"{requestType}\". " +
-                    $"Error e3baf1d6-a2f4-4058-8a12-8a7976d57bc9."
-                    );
+                })
+                    ?? throw new Exception(
+                        $"Failed to find handler for request type \"{requestType}\". " +
+                        $"Error e3baf1d6-a2f4-4058-8a12-8a7976d57bc9."
+                        );
 
-            handler = async x =>
-            {
-                var arg = SwarmUtils.Deserialize(x, requestType);
-                var o = method.Invoke(this, new[] { arg });
-                var t = o as Task ?? throw new Exception("Not a task. Error 7cf6d3fc-dc42-47f6-8ef9-dc267bdb0c29.");
-                await t.WaitAsync(TimeSpan.FromSeconds(10));
-                var result = (object)((dynamic)t).Result;
-                var responseType = result.GetType().AssemblyQualifiedName ?? throw new Exception(
-                    $"Failed to get AssemblyQualifiedName for type \"{result.GetType()}\". " +
-                    $"Error 15125585-a168-467e-8e1e-e9c620b3dca3."
-                    );
-                var response = new SwarmResponse(Type: responseType, Response: result);
-                return response;
-            };
+                handler = async x => {
+                    var arg = SwarmUtils.Deserialize(x, requestType);
+                    var o = method.Invoke(this, new[] { arg });
+                    var t = o as Task ?? throw new Exception("Not a task. Error 7cf6d3fc-dc42-47f6-8ef9-dc267bdb0c29.");
+                    await t.WaitAsync(TimeSpan.FromSeconds(10));
+                    var result = (object)((dynamic)t).Result;
+                    var responseType = result.GetType().AssemblyQualifiedName ?? throw new Exception(
+                        $"Failed to get AssemblyQualifiedName for type \"{result.GetType()}\". " +
+                        $"Error 15125585-a168-467e-8e1e-e9c620b3dca3."
+                        );
+                    var response = new SwarmResponse(Type: responseType, Response: result);
+                    return response;
+                };
 
-            _handlerCache[request.Type] = handler;
-            if (Verbose) AnsiConsole.MarkupLine($"[fuchsia][[SendAsync]] cached handler for {request.Type}[/]");
+                _handlerCache[request.Type] = handler;
+                if (Verbose) AnsiConsole.MarkupLine($"[fuchsia][[SendAsync]] cached handler for {request.Type}[/]");
+            }
         }
 
         // (1) run handler
@@ -635,22 +664,32 @@ public class Swarm : ISwarm
     public record Dto(
         string? Primary,
         IReadOnlyList<Node> Nodes,
-        string Secrets
+        string Secrets,
+        JobPool.Dto Jobs
         )
     {
         public static readonly Dto Empty = new(
             Primary: null,
             Nodes: ImmutableList<Node>.Empty,
-            Secrets: null!
+            Secrets: null!,
+            Jobs: JobPool.Dto.Empty
             );
 
-        public Swarm ToSwarm(Node self, DirectoryInfo workdir, bool verbose) => new(
-            self: self,
-            workdir: workdir,
-            primary: Primary,
-            nodes: Nodes,
-            verbose: verbose
-            );
+        public async Task<Swarm> ToSwarmAsync(Node self, DirectoryInfo workdir, bool verbose) {
+            var swarm = new Swarm(
+                self: self,
+                workdir: workdir,
+                primary: Primary,
+                nodes: Nodes,
+                jobPool: JobPool.Create(Jobs),
+                verbose: verbose
+                );
+
+            var remoteSecrets = await SwarmSecrets.DecodeAsync(Secrets, swarm.SwarmSecretsFile);
+            await remoteSecrets.SaveAsync();
+
+            return swarm;
+        }
 
         public static async Task<Dto> FromSwarmAsync(Swarm swarm)
         {
@@ -658,7 +697,8 @@ public class Swarm : ISwarm
             return new(
                 Primary: swarm.PrimaryId,
                 Nodes: swarm.Nodes,
-                Secrets: await secrets.EncodeAsync()
+                Secrets: await secrets.EncodeAsync(),
+                Jobs: swarm.JobPool.ToDto()
                 );
         }
     }
@@ -666,10 +706,10 @@ public class Swarm : ISwarm
     private readonly Dictionary<string, Node> _nodes = new();
 
     private Swarm(Node self, DirectoryInfo workdir, bool verbose)
-        : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>(), verbose: verbose)
+        : this(self, workdir: workdir, primary: self.Id, Enumerable.Empty<Node>(), jobPool: JobPool.Create(), verbose: verbose)
     { }
 
-    private Swarm(Node self, DirectoryInfo? workdir, string? primary, IEnumerable<Node> nodes, bool verbose)
+    private Swarm(Node self, DirectoryInfo? workdir, string? primary, IEnumerable<Node> nodes, JobPool jobPool, bool verbose)
     {
         Workdir = workdir ?? new DirectoryInfo(Info.DefaultWorkdir);
         Verbose = verbose;
@@ -694,6 +734,8 @@ public class Swarm : ISwarm
         SelfId = self.Id;
 
         SwarmSecretsFile = new FileInfo(Path.Combine(Workdir.FullName, ".swarmsecrets"));
+
+        JobPool = jobPool;
     }
 
     private async void StartHouseKeepingAsync(CancellationToken ct = default)
@@ -773,7 +815,7 @@ public class Swarm : ISwarm
         {
             try
             {
-                var t = await _localTaskQueue.TryDequeue();
+                var t = await LocalTaskQueue.TryDequeue();
                 if (t != null)
                 {
                     await t.RunAsync(this);
@@ -847,7 +889,7 @@ public class Swarm : ISwarm
     private async Task CheckAndRepairDuplicateEntries()
     {
         // find nodes with duplicate connection URLs
-        // (this can happen if a node is restarted more than once
+        // (this can happen if a node is restarted on the same machine
         // within the TTL time window (with the same URL but different ID)
         var gs = Nodes.GroupBy(n => n.ConnectUrl).Where(g => g.Count() > 1).ToArray();
         var changed = false;
@@ -905,7 +947,7 @@ public class Swarm : ISwarm
 
         foreach (var node in Others)
         {
-            if (node.Ago < NODE_TIMEOUT && !forcePingWithinTtl) continue;
+            if (node.SeenAgo < NODE_TIMEOUT && !forcePingWithinTtl) continue;
 
             try
             {
@@ -923,19 +965,12 @@ public class Swarm : ISwarm
             }
         }
 
+        // notify primary about removed nodes
         if (removedNodeIds.Count > 0)
         {
-            foreach (var node in Others)
+            if (TryGetPrimaryNode(out var primary)) 
             {
-                try
-                {
-                    Console.WriteLine($"[RefreshNodeListAsync] notify {node.ConnectUrl} about removed node(s)");
-                    await node.Client.RemoveNodesAsync(removedNodeIds);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine($"[RefreshNodeListAsync] notify {node.ConnectUrl} failed, because of {e.Message}");
-                }
+                await Primary.Client.RemoveNodesAsync(Self, removedNodeIds);
             }
         }
 
@@ -1060,7 +1095,7 @@ public class Swarm : ISwarm
                         // if no rivals, then I am the new primary
                         PrimaryId = SelfId;
                         log($"no rival nominees -> I WON :-)");
-                        if (Verbose) PrintNice();
+                        PrintNice();
                         return; // new primary: Self
                     }
                 }
@@ -1076,7 +1111,7 @@ public class Swarm : ISwarm
                         log($"make {nomineesNominee.Id} my new primary");
                         UpsertNode(nomineesNominee);
                         PrimaryId = nomineesNominee.Id;
-                        if (Verbose) PrintNice();
+                        PrintNice();
                         return; // new primary: nomineesNominee;
                     }
                     catch (Exception e)

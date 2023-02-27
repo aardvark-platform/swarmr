@@ -9,9 +9,9 @@ namespace Swarmr.Base.Tasks;
 /// <summary>
 /// Runs a job.
 /// </summary>
-public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
+public record RunJobTask(string Id, Job Job) : ISwarmTask
 {
-    public static RunJobTask Create(JobConfig job) => new(
+    public static RunJobTask Create(Job job) => new(
         Id: $"RunJobTask-{Guid.NewGuid()}",
         Job: job
         );
@@ -28,42 +28,50 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         await context.Primary.Client.UpdateNodeAsync(newSelf);
         AnsiConsole.MarkupLine($"[lime] updated Self.Status to {context.Self.Status}[/]");
 
-        ////////////////////////////////
+        context.JobPool.UpsertJob(
+            Job.WithStart(context.SelfId)
+            );
+
+
+        ///////////////////////////////////////
+        // announce started job to primary
+        var startedJob = Job.WithStart(startedOnNodeId: context.SelfId);
+        AnsiConsole.MarkupLine($"[lime] announce started job to primary ({context.PrimaryId}) {startedJob.ToJsonString().EscapeMarkup()}[/]");
+        await context.Primary.Client.UpsertJobAsync(startedJob);
+        AnsiConsole.MarkupLine($"[lime] announce started job to primary ({context.PrimaryId}) ... DONE[/]");
+
+        ///////////////////////////////////////
         // process job
         _ = ProcessJobAsync(context)
             .ContinueWith(async t => {
-                ////////////////////////////////
-                // remove active job
-                context.RemoveActiveJob(Job.Id);
-                context.Others
-                    .Where(n => n.Type != NodeType.Ephemeral)
-                    .SendEach(swarm => swarm.RemoveActiveJobAsync(Job.Id))
-                    ;
+                try {
+                    AnsiConsole.MarkupLine($"[lime] ContinueWith({t.Status})[/]");
 
-                ////////////////////////////////
-                // announce idle
-                var newSelf = context.UpsertNode(context.Self with
-                {
-                    LastSeen = DateTime.UtcNow,
-                    Status = NodeStatus.Idle
-                });
-                await context.Primary.Client.UpdateNodeAsync(newSelf);
-                AnsiConsole.MarkupLine($"[lime] updated Self.Status to {context.Self.Status}[/]");
+                    ///////////////////////////////////////
+                    // announce finished job to primary
+                    var finishedJob = t.Status switch {
+                        TaskStatus.RanToCompletion => startedJob.WithSucceeded(),
+                        TaskStatus.Faulted => startedJob.WithFailed(t.Exception!),
+                        TaskStatus.Canceled => startedJob.WithFailed(new Exception("Canceled. Error be36d5d3-7af1-45b1-8629-b4a2471858b2.")),
+                        _ => throw new Exception($"Unexpected {t.Status}. Error ab86370e-ae2b-4979-aed0-8b471d4a269e.")
+                    };
+                    AnsiConsole.MarkupLine($"[lime] announce finished job to primary ({context.PrimaryId}) {finishedJob.ToJsonString().EscapeMarkup()}[/]");
+                    await context.Primary.Client.UpsertJobAsync(finishedJob);
+                    AnsiConsole.MarkupLine($"[lime] announce finished job to primary ({context.PrimaryId}) ... DONE[/]");
+
+                    ////////////////////////
+                    // announce idle
+                    var newSelf = context.UpsertNode(context.Self with {
+                        LastSeen = DateTime.UtcNow,
+                        Status = NodeStatus.Idle
+                    });
+                    await context.Primary.Client.UpdateNodeAsync(newSelf);
+                    AnsiConsole.MarkupLine($"[lime] updated Self.Status to {context.Self.Status}[/]");
+                }
+                catch (Exception e) {
+                    AnsiConsole.MarkupLine($"[red] {e.ToString().EscapeMarkup()}[/]");
+                }
             });
-
-        ////////////////////////////////
-        // register/announce active job
-        var activeJob = new ActiveJob(
-            Config: Job,
-            Started: DateTimeOffset.UtcNow,
-            Completed: null,
-            WorkerNodeId: context.SelfId
-            );
-        context.UpsertActiveJob(activeJob);
-        context.Others
-            .Where(n => n.Type != NodeType.Ephemeral)
-            .SendEach(swarm => swarm.UpsertActiveJobAsync(activeJob))
-            ;
     }
 
     private async Task ProcessJobAsync(Swarm context)
@@ -87,7 +95,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
         {
             // (1) setup (extract swarm files into job dir)
             {
-                var setupFileNames = Job.Setup ?? Array.Empty<string>();
+                var setupFileNames = Job.Config.Setup ?? Array.Empty<string>();
                 foreach (var ifn in setupFileNames)
                 {
                     AnsiConsole.WriteLine($"[RunJobTask][Setup] {ifn}");
@@ -121,7 +129,7 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
             }
 
             // (2) execute command lines
-            var commandLines = Job.Execute ?? Array.Empty<JobConfig.ExecuteItem>();
+            var commandLines = Job.Config.Execute ?? Array.Empty<JobDescription.ExecuteItem>();
             var stdoutFiles = new FileInfo[commandLines.Count];
             var stderrFiles = new FileInfo[commandLines.Count];
             {
@@ -152,11 +160,11 @@ public record RunJobTask(string Id, JobConfig Job) : ISwarmTask
 
             // (3) collect result files
             {
-                var collectPaths = Job.Collect ?? Array.Empty<string>();
+                var collectPaths = Job.Config.Collect ?? Array.Empty<string>();
 
                 var resultZip = SwarmFile.Create(
-                    logicalName: Job.Result,
-                    fileName: Path.GetFileName(Job.Result) + ".zip"
+                    logicalName: Job.Config.Result,
+                    fileName: Path.GetFileName(Job.Config.Result) + ".zip"
                     );
 
                 await using var resultZipLock = await context.LocalSwarmFiles.GetLockAsync(resultZip, label: "ProcessJobAsync");

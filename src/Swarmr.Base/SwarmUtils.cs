@@ -278,8 +278,8 @@ public static class SwarmUtils
 public static class Extensions
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static IEnumerable<Node> Except(this IEnumerable<Node> xs, Node n)
-        => xs.Where(x => x.Id != n.Id);
+    public static IEnumerable<Node> Except(this IEnumerable<Node> xs, Node n, bool exceptEphemeral)
+        => xs.Where(x => x.Id != n.Id && (!exceptEphemeral || x.Type != NodeType.Ephemeral));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IEnumerable<Node> Except(this IEnumerable<Node> xs, string nodeId)

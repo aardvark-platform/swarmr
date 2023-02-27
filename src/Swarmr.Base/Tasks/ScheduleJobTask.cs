@@ -1,12 +1,11 @@
 ﻿using Spectre.Console;
 using Swarmr.Base.Api;
-using System.Xml.Linq;
 
 namespace Swarmr.Base.Tasks;
 
-public record ScheduleJobTask(string Id, JobConfig Job) : ISwarmTask
+public record ScheduleJobTask(string Id, Job Job) : ISwarmTask
 {
-    public static ScheduleJobTask Create(JobConfig job) => new(
+    public static ScheduleJobTask Create(Job job) => new(
         Id: $"ScheduleJobTask-{Guid.NewGuid()}",
         Job: job
         );
@@ -21,7 +20,7 @@ public record ScheduleJobTask(string Id, JobConfig Job) : ISwarmTask
             .ToList()
             ;
 
-        // if possible, do not schedule to priary node ...
+        // if possible, do not schedule to primary node ...
         if (idleNodes.Count > 1 && context.PrimaryId != null)
         {
             idleNodes = idleNodes.Except(context.PrimaryId).ToList();
