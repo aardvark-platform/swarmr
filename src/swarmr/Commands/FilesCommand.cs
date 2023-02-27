@@ -230,7 +230,7 @@ public class FilesDeleteCommand : AsyncCommand<FilesDeleteCommand.Settings>
     {
         var swarm = await SwarmUtils.GetEphemeralSwarm(verbose: false);
 
-        await swarm.DeleteSwarmFilesAsync(sender: swarm.Self, path: settings.Path, recursive: settings.Recursive);
+        await swarm.Primary.Client.DeleteSwarmFilesAsync(sender: swarm.Self, path: settings.Path, recursive: settings.Recursive);
 
         return 0;
     }
