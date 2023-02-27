@@ -504,6 +504,10 @@ public class Swarm : ISwarm
             }
         }
 
+        var allFiles = LocalSwarmFiles.Files.ToImmutableDictionary(x => x.LogicalName);
+        var newSelf = Self with { Files = allFiles };
+        _ = Primary.Client.UpdateNodeAsync(newSelf);
+
         return Task.FromResult(new DeleteSwarmFilesResponse());
     }
 
