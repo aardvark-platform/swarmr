@@ -95,7 +95,7 @@ public class Swarm : ISwarm
     public void PrintNice()
     {
         var table = new Table()
-            .AddColumns("Swarm", "Id", "Hostname", "Port", "Status", "Mode", "LastSeen")
+            .AddColumns("Swarm", "Id", "Hostname", "Port", "Status", "Mode", "Uptime", "LastSeen")
             ;
         foreach (var n in Nodes.OrderBy(x => x.Id))
         {
@@ -113,6 +113,7 @@ public class Swarm : ISwarm
                 new Markup(n.Port.ToString()),
                 new Markup(n.Status.ToString().ToLower()),
                 new Markup(n.Type.ToString().ToLower()),
+                new Markup($"{n.Uptime:dd\\.hh\\:mm\\:ss}").Justify(Justify.Right),
                 new Markup($"{n.SeenAgo.TotalSeconds:0.0} [[s]]").Justify(Justify.Right)
                 );
         }
