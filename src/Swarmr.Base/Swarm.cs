@@ -464,6 +464,49 @@ public class Swarm : ISwarm
         return new(Task: t);
     }
 
+    private Task<DeleteSwarmFilesResponse> HandleDeleteSwarmFilesAsync(DeleteSwarmFilesRequest request)
+    {
+        if (IAmPrimary)
+        {
+            Others
+                .Except(request.Sender, exceptEphemeral: true)
+                .SendEach(async n => await n.DeleteSwarmFilesAsync(Self, request.Path, request.Recursive))
+                ;
+        }
+
+        if (request.Recursive)
+        {
+            if (request.Path != null) 
+            {
+                AnsiConsole.WriteLine(request.Path);
+                LocalSwarmFiles.DeleteDir(request.Path);
+            }
+            else
+            {
+                var rootEntries = LocalSwarmFiles.List(path: request.Path, recursive: false);
+                foreach (var rootEntry in rootEntries) 
+                {
+                    AnsiConsole.WriteLine(rootEntry.LogicalName);
+                    LocalSwarmFiles.DeleteDir(rootEntry.LogicalName);
+                }
+            }
+        }
+        else
+        {
+            var rootEntries = LocalSwarmFiles
+                .List(path: request.Path, recursive: false)
+                .Where(x => x is SwarmFile)
+                ;
+            foreach (var rootEntry in rootEntries)
+            {
+                AnsiConsole.WriteLine(rootEntry.LogicalName);
+                LocalSwarmFiles.DeleteDir(rootEntry.LogicalName);
+            }
+        }
+
+        return Task.FromResult(new DeleteSwarmFilesResponse());
+    }
+
     #endregion
 
     #region swarm task messages

@@ -5,12 +5,23 @@ using System.Text;
 
 namespace Swarmr.Base;
 
+public interface ISwarmFileEntry 
+{
+    DateTimeOffset Created { get; }
+    string LogicalName { get; }
+}
+
+public record SwarmFileDir(
+    DateTimeOffset Created,
+    string LogicalName
+    ) : ISwarmFileEntry;
+
 public record SwarmFile(
     DateTimeOffset Created,
     string LogicalName,
     string FileName,
     string? Hash
-    )
+    ) : ISwarmFileEntry 
 {
     public const string METAFILE_NAME = "___swarmfile.json";
     public const string LOCKFILE_NAME = "___lock";
@@ -116,38 +127,60 @@ public class LocalSwarmFiles
 
     // list
 
-    public IEnumerable<SwarmFile> Files => List();
+    public IEnumerable<SwarmFile> Files => List(recursive: true).Cast<SwarmFile>();
 
-    public IEnumerable<SwarmFile> List(string? path = null)
+    public IEnumerable<ISwarmFileEntry> List(string? path = null, bool recursive = false)
     {
         var dir = path != null ? new DirectoryInfo(Path.Combine(_basedir.FullName, path)) : _basedir;
 
-        var xs = dir
-            .EnumerateFiles(SwarmFile.METAFILE_NAME, SearchOption.AllDirectories)
-            .ToList();
+        var result = new List<ISwarmFileEntry>();
 
-        var result = xs
-            .Select(f =>
-            {
-                try
-                {
-                    return SwarmUtils.TryDeserialize<SwarmFile>(File.ReadAllText(f.FullName));
-                }
-                catch (Exception e)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[red][[ERROR]]Corrupt swarm file metadata. " +
-                        $"Deleting {f.FullName.EscapeMarkup()}.\n" +
-                        $"{e.Message.EscapeMarkup()}[/]"
-                        );
-                    f.Delete();
-                    return null;
-                }
-            })
-            .Where(x => x != null)
+        var xs = recursive
+            ? dir.EnumerateFiles(SwarmFile.METAFILE_NAME, SearchOption.AllDirectories)
+            : dir.EnumerateFiles(SwarmFile.METAFILE_NAME, SearchOption.TopDirectoryOnly)
             ;
 
-        return (IEnumerable<SwarmFile>)result;
+        foreach (var x in xs) {
+            try {
+                var f = SwarmUtils.TryDeserialize<SwarmFile>(File.ReadAllText(x.FullName));
+                if (f != null) result.Add(f);
+            }
+            catch (Exception e) {
+                AnsiConsole.MarkupLine(
+                    $"[red][[ERROR]]Corrupt swarm file metadata. " +
+                    $"Deleting {x.FullName.EscapeMarkup()}.\n" +
+                    $"{e.Message.EscapeMarkup()}[/]"
+                    );
+                x.Delete();
+            }
+        }
+
+        if (!recursive) 
+        {
+            var ys = dir.EnumerateDirectories();
+            foreach (var y in ys) {
+                var m = new FileInfo(Path.Combine(y.FullName, SwarmFile.METAFILE_NAME));
+                if (m.Exists) {
+                    try {
+                        var f = SwarmUtils.TryDeserialize<SwarmFile>(File.ReadAllText(m.FullName));
+                        if (f != null) result.Add(f);
+                    }
+                    catch (Exception e) {
+                        AnsiConsole.MarkupLine(
+                            $"[red][[ERROR]]Corrupt swarm file metadata. " +
+                            $"Deleting {m.FullName.EscapeMarkup()}.\n" +
+                            $"{e.Message.EscapeMarkup()}[/]"
+                            );
+                        m.Delete();
+                    }
+                }
+                else {
+                    result.Add(new SwarmFileDir(Created: y.CreationTimeUtc, LogicalName: y.Name));
+                }
+            }
+        }
+
+        return result;
     }
 
     // exists
@@ -219,6 +252,11 @@ public class LocalSwarmFiles
     {
         await using var @lock = await GetLockAsync(f, label: "Delete");
         GetDirectoryInfo(f).Delete(recursive: true);
+    }
+
+    public void DeleteDir(string logicalName) 
+    {
+        GetDirectoryInfo(logicalName).Delete(recursive: true);
     }
 
     #region locks

@@ -43,6 +43,13 @@ app.Configure(config =>
                 .WithDescription("Extracts swarm files to local directory.")
                 .WithExample(new[] { "files", "extract", "my/swarm/path", "C:/Data" })
                 ;
+
+            c.AddCommand<FilesDeleteCommand>("delete")
+                .WithAlias("del")
+                .WithAlias("rm")
+                .WithDescription("Deletes swarm files.")
+                .WithExample(new[] { "files", "delete", "my/swarm/path", "-r" })
+                ;
         })
         ;
 

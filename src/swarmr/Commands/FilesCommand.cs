@@ -17,6 +17,10 @@ public class FilesListCommand : AsyncCommand<FilesListCommand.Settings>
         [CommandArgument(0, "[PATH]")]
         public string? Path { get; init; }
 
+        [Description("List directories and their contents recursively. ")]
+        [CommandOption("-r|--recursive")]
+        public bool Recursive { get; init; }
+
         [Description("Tree view. ")]
         [CommandOption("-t|--tree")]
         public bool TreeView { get; init; }
@@ -100,11 +104,14 @@ public class FilesListCommand : AsyncCommand<FilesListCommand.Settings>
     {
         var swarm = await SwarmUtils.GetEphemeralSwarm(settings.Verbose);
 
-        var allFiles = swarm.LocalSwarmFiles.List(settings.Path).OrderBy(x => x.LogicalName);
+        var allFiles = swarm.LocalSwarmFiles
+            .List(settings.Path, recursive: settings.Recursive)
+            .OrderBy(x => x.LogicalName)
+            ;
 
-        if (settings.TreeView)
+        if (settings.TreeView && settings.Recursive)
         {
-            var root = NDir.Create("/", allFiles);
+            var root = NDir.Create("/", allFiles.Cast<SwarmFile>());
             AnsiConsole.Write(root.Render());
         }
         else
@@ -115,14 +122,28 @@ public class FilesListCommand : AsyncCommand<FilesListCommand.Settings>
                 .AddColumn("created")
                 .AddColumn("hash")
                 ;
-            foreach (var x in allFiles)
-            {
-                table.AddRow(
-                    new Text(x.LogicalName),
-                    new Text(x.FileName),
-                    new Text(x.Created.ToString()),
-                    new Text(x.Hash ?? "")
-                    );
+            foreach (var x in allFiles) {
+                switch (x) 
+                {
+                    case SwarmFile f: {
+                            table.AddRow(
+                                new Text(f.LogicalName),
+                                new Text(f.FileName),
+                                new Text(f.Created.ToString()),
+                                new Text(f.Hash ?? "")
+                                );
+                            break;
+                        }
+                    case SwarmFileDir d: {
+                            table.AddRow(
+                                new Text(d.LogicalName),
+                                new Text("/"),
+                                new Text(d.Created.ToString()),
+                                new Text("")
+                                );
+                            break;
+                        }
+                }
             }
             AnsiConsole.Write(table);
         }
@@ -166,8 +187,8 @@ public class FilesExtractCommand : AsyncCommand<FilesExtractCommand.Settings> {
 
         var swarm = await SwarmUtils.GetEphemeralSwarm(settings.Verbose);
 
-        var files = swarm.LocalSwarmFiles.List(settings.Source).OrderBy(x => x.LogicalName);
-        foreach (var file in files) 
+        var files = swarm.LocalSwarmFiles.List(settings.Source, recursive: true).OrderBy(x => x.LogicalName);
+        foreach (var file in files.Cast<SwarmFile>()) 
         {
             AnsiConsole.WriteLine(file.LogicalName);
 
@@ -187,6 +208,29 @@ public class FilesExtractCommand : AsyncCommand<FilesExtractCommand.Settings> {
         }
 
         await swarm.LeaveSwarmAsync(swarm.Self);
+
+        return 0;
+    }
+}
+
+public class FilesDeleteCommand : AsyncCommand<FilesDeleteCommand.Settings> 
+{
+    public class Settings : CommandSettings
+    {
+        [Description("Delete swarm files in [PATH]. Default is root path. ")]
+        [CommandArgument(0, "[PATH]")]
+        public string? Path { get; init; }
+
+        [Description("Delete directories and their contents recursively. ")]
+        [CommandOption("-r|--recursive")]
+        public bool Recursive { get; init; }
+    }
+
+    public override async Task<int> ExecuteAsync([NotNull] CommandContext context, [NotNull] Settings settings)
+    {
+        var swarm = await SwarmUtils.GetEphemeralSwarm(verbose: false);
+
+        await swarm.DeleteSwarmFilesAsync(sender: swarm.Self, path: settings.Path, recursive: settings.Recursive);
 
         return 0;
     }

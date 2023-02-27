@@ -113,6 +113,23 @@ public static partial class ISwarmExtensions {
     }
 }
 
+public record DeleteSwarmFilesRequest(Node Sender, string? Path, bool Recursive);
+public record DeleteSwarmFilesResponse();
+public static partial class ISwarmExtensions {
+    public static async Task DeleteSwarmFilesAsync(this ISwarm client,
+        Node sender,
+        string? path,
+        bool recursive
+        ) 
+    {
+        var response = await client.SendAsync<DeleteSwarmFilesRequest, DeleteSwarmFilesResponse>(new(
+            Sender: sender,
+            Path: path,
+            Recursive: recursive
+            ));
+    }
+}
+
 #endregion
 
 #region swarm task messages
