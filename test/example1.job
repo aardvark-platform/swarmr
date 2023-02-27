@@ -7,4 +7,4 @@ EXECUTE
 
 COLLECT .
 
-RESULT sm/test/foo/work101
+RESULT sm/test/results/example1-{JOBID}

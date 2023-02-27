@@ -261,10 +261,11 @@ public record RunJobTask(string Id, Job Job) : ISwarmTask
                         await context.LocalSwarmFiles.WriteAsync(resultZip);
                         AnsiConsole.MarkupLine($"    created result swarm file [green]{resultZip.ToJsonString().EscapeMarkup()}[/]");
 
-                        context.UpsertNode(
-                            context.Self.UpsertFile(resultZip)
-                            );
-                        AnsiConsole.MarkupLine($"    announced new node file [green]{resultZip.LogicalName}[/]");
+                        var newSelf = context.Self.UpsertFile(resultZip);
+                        context.UpsertNode(newSelf);
+                        await context.Primary.Client.UpdateNodeAsync(newSelf);
+
+                        AnsiConsole.MarkupLine($"    announced new swarm file [green]{resultZip.LogicalName}[/]");
                     }
                     catch (Exception e)
                     {
